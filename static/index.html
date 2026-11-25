@@ -400,10 +400,21 @@ function renderFormats(C, list) {
   ];
   // ad-name segments (angles, hooks, creators… whatever the naming convention puts in each position)
   const maxSeg = Math.max(1, ...D.ads.map(a => a.name.split(S.segDelim).length));
-  if (S.segPos >= maxSeg) S.segPos = 0;
-  const segOf = t => { const p = t.ad.name.split(S.segDelim); return p.length > S.segPos ? p[S.segPos].trim() || null : null; };
-  const examples = [...new Set(D.ads.map(a => a.name.split(S.segDelim)[S.segPos]).filter(Boolean))].slice(0, 4).join(", ");
-  const seg = groupBy(C.perAd, segOf);
+  // tagged names ("…_C:UGC_X:BeforeAfter_…") are compared by tag; otherwise by position
+  const tagCount = {};
+  D.ads.forEach(a => Object.keys(tagsOf(a.name)).forEach(k => tagCount[k] = (tagCount[k] || 0) + 1));
+  const tagKeys = Object.keys(tagCount).sort((a, b) => tagCount[b] - tagCount[a]);
+  if (S.segBy == null) {   // the concept tag when most of the range's spend carries tags, else part #3 of the older names (Ad575_Video_UGC-Creator_…)
+    const tagged = C.perAd.filter(t => tagsOf(t.ad.name).C).reduce((s, t) => s + t.spend, 0);
+    S.segBy = tagKeys.includes("C") && tagged >= C.total.spend / 2 ? "tag:C" : maxSeg > 2 ? "pos:2" : "pos:0";
+  }
+  if (S.segBy.startsWith("pos:") && +S.segBy.slice(4) >= maxSeg) S.segBy = "pos:0";
+  const byTag = S.segBy.startsWith("tag:"), tag = S.segBy.slice(4), pos = +S.segBy.slice(4);
+  const partOf = a => { if (byTag) return tagsOf(a.name)[tag] || null; const p = a.name.split(S.segDelim); return p.length > pos ? p[pos].trim() || null : null; };
+  const segOf = t => partOf(t.ad);
+  const examples = [...new Set(D.ads.map(partOf).filter(Boolean))].slice(0, 4).join(", ");
+  const untagged = C.perAd.filter(t => !segOf(t));
+  const seg = groupBy(C.perAd, segOf).filter(g => g.spend >= 1);
   seg.forEach(g => { judge(g, R); g.n = g.ads.length; });
   const scols = [
     {k:"key", h:"Name part", f:g => `<b>${esc(g.key)}</b><div class="small">${g.n} ad${g.n>1?"s":""}</div>`},
@@ -420,12 +431,20 @@ function renderFormats(C, list) {
     <div class="card"><h2>Ad formats</h2><p class="sub">Spend and return by format. The purple tick is the account's average ROAS (${R.avg.toFixed(2)}).</p>
       ${table("t-fmt", fcols, fm, "formats")}</div>
     <div class="card"><h2>Angles, hooks and creators from ad names</h2>
-      <p class="sub">Split ad names into parts and compare one part across ads, e.g. the angle or hook tag your naming convention puts in a fixed position.</p>
-      <div class="chips"><label class="small">Split names on <select id="segDelim">${delims.map(([d,l]) => `<option value="${esc(d)}" ${d===S.segDelim?"selected":""}>${esc(l)}</option>`).join("")}</select></label>
-        <label class="small">and compare part <select id="segPos">${Array.from({length:maxSeg}, (_, i) => `<option value="${i}" ${i===S.segPos?"selected":""}>#${i+1}</option>`).join("")}</select></label>
-        <span class="small">e.g. ${esc(examples)}</span></div>
+      <p class="sub">Compare ads by a tag in their name (<code>C:UGC</code>, <code>X:Before-After</code>…), or by the part in a fixed position for names without tags.</p>
+      <div class="chips"><label class="small">Compare by <select id="segBy">
+          ${tagKeys.length ? `<optgroup label="Name tags">${tagKeys.map(k => `<option value="tag:${esc(k)}" ${S.segBy==="tag:"+k?"selected":""}>${esc(k)}: ${esc(TAGS[k] || "tag")} (${tagCount[k]} ads)</option>`).join("")}</optgroup>` : ""}
+          <optgroup label="Part of the name by position">${Array.from({length:maxSeg}, (_, i) => `<option value="pos:${i}" ${S.segBy==="pos:"+i?"selected":""}>Part #${i+1}</option>`).join("")}</optgroup></select></label>
+        ${byTag ? "" : `<label class="small">split on <select id="segDelim">${delims.map(([d,l]) => `<option value="${esc(d)}" ${d===S.segDelim?"selected":""}>${esc(l)}</option>`).join("")}</select></label>`}
+        <span class="small">e.g. ${esc(examples)}</span>
+        ${untagged.length ? `<span class="small">· ${untagged.length} ad${untagged.length>1?"s":""} with spend have no ${byTag ? esc(tag) + ": tag" : "part #" + (pos+1)} and are left out (${money0.format(untagged.reduce((s,t)=>s+t.spend,0))})</span>` : ""}</div>
       ${table("t-seg", scols, seg, "seg")}</div>`;
 }
+
+// tags in Soteri's ad names, "Ad537_F:Static_SKU:LongTerm_T:Branded_X:IClearedMyEczema…" → {F:"Static", SKU:"LongTerm", …}
+const tagsOf = name => { const o = {}; for (const m of String(name).matchAll(/(?:^|_)([A-Za-z]{1,4}):([^_]+)/g)) o[m[1]] = m[2]; return o; };
+const TAGS = {F:"format", SKU:"product", T:"ad type", C:"concept", X:"hook / message", H:"landing page", E:"creator", V:"visual",
+              I:"iteration / style", PT:"video length", P:"version"};
 
 // ── CSV of the creatives view ─────────────────────────────────────────────
 function csv() {
@@ -453,8 +472,8 @@ document.addEventListener("click", e => {
     S.sort[key] = [k, S.sort[key][0] === k ? -S.sort[key][1] : -1]; render(); }
 });
 document.addEventListener("change", e => {
-  if (e.target.id === "segDelim") { S.segDelim = e.target.value; S.segPos = 0; render(); }
-  if (e.target.id === "segPos") { S.segPos = +e.target.value; render(); }
+  if (e.target.id === "segDelim") { S.segDelim = e.target.value; S.segBy = "pos:0"; render(); }
+  if (e.target.id === "segBy") { S.segBy = e.target.value; render(); }
 });
 document.addEventListener("input", e => { if (e.target.id === "q") { S.q = e.target.value; const pos = e.target.selectionStart; render(); const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos); } });
 const tip = $("#tip");

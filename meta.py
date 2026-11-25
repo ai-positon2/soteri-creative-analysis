@@ -149,8 +149,11 @@ def describe_creative(c):
 
     if c.get("product_set_id") or tmpl or "product_set" in json.dumps(afs.get("ad_formats") or []).lower():
         fmt = "Catalog"
-    elif afs:
+    elif afs and len(afs.get("videos") or []) + len(afs.get("images") or []) + bool(c.get("video_id") or video) > 0:
+        # Advantage+ creatives often keep their one video on the creative itself, not in the asset feed
         n_vid, n_img = len(afs.get("videos") or []), len(afs.get("images") or [])
+        if not n_vid and (c.get("video_id") or video):
+            n_vid = 1
         if "CAROUSEL" in (afs.get("ad_formats") or []):
             fmt = "Carousel"
         elif n_vid and n_img:
