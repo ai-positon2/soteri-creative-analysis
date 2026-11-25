@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Soteri Creative Analysis</title>
+<title>Creative Analysis</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
@@ -134,7 +134,7 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
 <div class="wrap">
 <header>
   <div>
-    <span class="eyebrow"><span class="d"></span>Meta · Soteri Skin</span>
+    <span class="eyebrow"><span class="d"></span><span id="eyebrow">Meta</span></span>
     <h1>Creative <span class="grad">analysis</span></h1>
     <div class="meta" id="meta">Loading…</div>
   </div>
@@ -151,6 +151,7 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
       <option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30" selected>Last 30 days</option>
       <option value="60">Last 60 days</option><option value="90">Last 90 days</option><option value="custom">Custom…</option></select></label>
     <span id="customDates" style="display:none"><input type="date" id="since"> – <input type="date" id="until"></span>
+    <label id="acctWrap" style="display:none">Account <select id="acct"><option value="">All accounts</option></select></label>
     <label>Campaign <select id="campaign"><option value="">All campaigns</option></select></label>
     <label>Ads <select id="kind"><option value="">All formats</option></select>
       <select id="partner"><option value="">Partnership + brand</option><option value="1">Partnership ads</option><option value="0">Brand ads</option></select></label>
@@ -197,10 +198,15 @@ async function load() {
   const cur = D.account.currency || "USD";
   money = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, maximumFractionDigits:2});
   money0 = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, maximumFractionDigits:0});
-  $("#meta").innerHTML = `${esc(D.account.name)} · ${ACTIVE().length} active ads (ad, ad set and campaign on) · data for the last ${D.rows.length ? daysBetween(D.since, D.until)+1 : 0} days · refreshed ${D.builtAt ? new Date(D.builtAt).toLocaleString() : "—"} (${D.refreshHours >= 24 && D.refreshHours % 24 === 0 ? (D.refreshHours === 24 ? "daily" : "every " + D.refreshHours/24 + " days") : "every " + D.refreshHours + "h"})`;
+  D.accounts = D.accounts && D.accounts.length ? D.accounts : [D.account];
+  document.title = `${D.client || D.account.name} · Creative Analysis`;
+  $("#eyebrow").textContent = `Meta · ${D.client || D.account.name}`;
+  const acctNames = D.accounts.length > 1 ? `${D.accounts.length} ad accounts (${D.accounts.map(a => a.name).join(", ")})` : D.account.name;
+  $("#acctWrap").style.display = D.accounts.length > 1 ? "" : "none";
+  $("#acct").innerHTML = `<option value="">All ${D.accounts.length} accounts</option>` + D.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
+  $("#meta").innerHTML = `${esc(acctNames)} · ${ACTIVE().length} active ads (ad, ad set and campaign on) · data for the last ${D.rows.length ? daysBetween(D.since, D.until)+1 : 0} days · refreshed ${D.builtAt ? new Date(D.builtAt).toLocaleString() : "—"} (${D.refreshHours >= 24 && D.refreshHours % 24 === 0 ? (D.refreshHours === 24 ? "daily" : "every " + D.refreshHours/24 + " days") : "every " + D.refreshHours + "h"})`;
   banners(D);
-  const camps = [...new Set(D.ads.filter(campaignActive).map(a => a.campaign).filter(Boolean))].sort();
-  $("#campaign").innerHTML = `<option value="">All campaigns</option>` + camps.map(c => `<option>${esc(c)}</option>`).join("");
+  fillCampaigns();
   const kinds = [...new Set(D.ads.filter(campaignActive).map(kindOf))].sort((a, b) => KIND_ORDER(a) - KIND_ORDER(b) || a.localeCompare(b));
   $("#kind").innerHTML = `<option value="">All formats</option>` + kinds.map(k => `<option value="${esc(k)}">${esc(KIND_LABEL[k] || k)}</option>`).join("");
   $("#until").value = D.until; $("#since").value = shift(D.until, -29);
@@ -212,9 +218,15 @@ async function load() {
   $("#app").style.display = "";
   render();
 }
+// the campaigns of the chosen account (all of them for "All accounts"), keeping the chosen one when it is still there
+function fillCampaigns() {
+  const acct = $("#acct").value, cur = $("#campaign").value;
+  const camps = [...new Set(D.ads.filter(a => campaignActive(a) && (!acct || a.account === acct)).map(a => a.campaign).filter(Boolean))].sort();
+  $("#campaign").innerHTML = `<option value="">All campaigns</option>` + camps.map(c => `<option${c === cur ? " selected" : ""}>${esc(c)}</option>`).join("");
+}
 function banners(d) {
   let h = "";
-  if (d.demo) h += `<div class="banner demo">Demo data: these numbers are made up. Set META_ADS_ACCESS_TOKEN on the server (and remove DEMO) to see Soteri's real ads.</div>`;
+  if (d.demo) h += `<div class="banner demo">Demo data: these numbers are made up. Set META_ADS_ACCESS_TOKEN on the server (and remove DEMO) to see ${esc(d.client || "the client")}'s real ads.</div>`;
   if (d.warning) h += `<div class="banner demo">${esc(d.warning)}</div>`;
   if (d.error) h += `<div class="banner err">The last refresh from Meta failed: ${esc(d.error)}${d.rows ? " Showing the last good data." : ""}</div>`;
   $("#banners").innerHTML = h;
@@ -260,7 +272,7 @@ function finish(t) {
 function compute() {
   // Totals and the benchmark: everything active campaigns spent in the range, paused ads included (what Ads Manager shows
   // for those campaigns). Creatives judged: only ads Meta calls ACTIVE (the ad, its ad set and its campaign all on).
-  const [since, until] = range(), camp = $("#campaign").value;
+  const [since, until] = range(), camp = $("#campaign").value, acct = $("#acct").value;
   // The Ads filter (format, partnership) narrows the totals and the creatives, but the benchmark stays the average of all
   // ads in the chosen campaigns, so a filtered creative is still judged against the account, not against its own kind.
   const keep = adFilter();
@@ -268,6 +280,7 @@ function compute() {
   for (const r of D.rows) {
     if (r[0] < since || r[0] > until) continue;
     const ad = D.ads[r[1]];
+    if (acct && ad.account !== acct) continue;
     if (camp && ad.campaign !== camp) continue;
     if (!campaignActive(ad)) continue;
     add(all, r);
@@ -326,7 +339,7 @@ const rx = x => x ? x.toFixed(2) + "×" : "—";
 const vsAvg = (t, avg) => { if (!avg || !t.spend) return "—"; const d = t.roas/avg - 1; return `<span class="${d>=0?"up":"down"}">${d>=0?"+":""}${(d*100).toFixed(0)}%</span>`; };
 const pill = v => `<span class="pill v-${v}">${VLABEL[v]}</span>`;
 const thumb = a => a.thumb ? `<img class="thumb" loading="lazy" src="${esc(a.thumb)}" alt="">` : `<div class="thumb">${esc(a.format || "")}</div>`;
-const amLink = a => { const act = (D.account.id || "").replace(/\D/g, ""); return act ? `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}&selected_ad_ids=${a.id}` : ""; };
+const amLink = a => { const act = (a.account || D.account.id || "").replace(/\D/g, ""); return act ? `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}&selected_ad_ids=${a.id}` : ""; };
 function links(a) {
   const out = [];
   if (!D.demo && amLink(a)) out.push(`<a href="${amLink(a)}" target="_blank" rel="noopener">Ads Manager</a>`);
@@ -399,7 +412,7 @@ function renderCreatives(C, list) {
   const cols = [
     {k:"thumb", h:"", f:t => thumb(t.ad), v:t => 0},
     {k:"name", h:"Creative", v:t => t.ad.name.toLowerCase(), f:t => `<div class="name">${esc(t.ad.name)}<span class="st ${t.ad.status}">${esc((t.ad.status||"").replace(/_/g," ").toLowerCase())}</span></div>
-      <div class="small">${esc(t.ad.format)}${t.ad.partnership ? ` · <span style="color:var(--avg)">Partnership${t.ad.partnership_ids ? " (" + esc(t.ad.partnership_ids) + ")" : ""}</span>` : ""}${t.ad.cta ? " · " + esc(t.ad.cta) : ""} · ${esc(t.ad.campaign)}${multi && t.ads.length > 1 ? ` · in ${t.ads.length} ad sets` : ` · ${esc(t.ad.adset)}`}</div><div class="small">${links(t.ad)}</div>`},
+      <div class="small">${esc(t.ad.format)}${t.ad.partnership ? ` · <span style="color:var(--avg)">Partnership${t.ad.partnership_ids ? " (" + esc(t.ad.partnership_ids) + ")" : ""}</span>` : ""}${t.ad.cta ? " · " + esc(t.ad.cta) : ""} · ${D.accounts.length > 1 && !$("#acct").value ? esc((D.accounts.find(x => x.id === t.ad.account) || {}).name || "") + " · " : ""}${esc(t.ad.campaign)}${multi && t.ads.length > 1 ? ` · in ${t.ads.length} ad sets` : ` · ${esc(t.ad.adset)}`}</div><div class="small">${links(t.ad)}</div>`},
     {k:"verdict", h:"Verdict", v:t => VERDICTS.indexOf(t.verdict), f:t => `${pill(t.verdict)}<div class="small" style="max-width:220px">${esc(t.why)}</div>`},
     {k:"spend", h:"Spend", num:1, f:t => money0.format(t.spend)},
     {k:"rev", h:"Purchase value", num:1, f:t => money0.format(t.rev)},
@@ -560,18 +573,19 @@ const TAGS = {F:"format", SKU:"product", T:"ad type", C:"concept", X:"hook / mes
 // ── CSV of the creatives view ─────────────────────────────────────────────
 function csv() {
   const C = compute(), list = creatives(C);
-  const head = ["Ad name","Ad ID","Status","Format","Campaign","Ad set","Opening line","Verdict","Why","Spend","Purchase value","ROAS","ROAS vs avg","Purchases","CPA","CTR","Hook rate","Hold rate","3-sec views","Cost per 3-sec view","Partnership ad","CTA button"];
+  const head = ["Ad account","Ad name","Ad ID","Status","Format","Campaign","Ad set","Opening line","Verdict","Why","Spend","Purchase value","ROAS","ROAS vs avg","Purchases","CPA","CTR","Hook rate","Hold rate","3-sec views","Cost per 3-sec view","Partnership ad","CTA button"];
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [head.map(q).join(",")].concat(list.sort((a,b) => b.spend - a.spend).map(t => [t.ad.name, t.ads.map(a => a.id).join(" "), t.ad.status, t.ad.format, t.ad.campaign,
+  const lines = [head.map(q).join(",")].concat(list.sort((a,b) => b.spend - a.spend).map(t => [(D.accounts.find(x => x.id === t.ad.account) || {}).name || "", t.ad.name, t.ads.map(a => a.id).join(" "), t.ad.status, t.ad.format, t.ad.campaign,
     t.ad.adset, t.ad.hook, VLABEL[t.verdict], t.why, t.spend.toFixed(2), t.rev.toFixed(2), t.roas.toFixed(2), (t.ratio||0).toFixed(2), Math.round(t.purch),
     t.cpa ? t.cpa.toFixed(2) : "", (t.ctr*100).toFixed(2)+"%", t.hook != null ? (t.hook*100).toFixed(1)+"%" : "", t.hold != null ? (t.hold*100).toFixed(1)+"%" : "", Math.round(t.v3), t.cp3 ? t.cp3.toFixed(3) : "", partLabel(t.ad), t.ad.cta || ""].map(q).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], {type:"text/csv"}));
-  a.download = `soteri-meta-creatives_${C.since}_${C.until}.csv`; a.click();
+  a.download = `${D.slug || "meta"}-creatives_${C.since}_${C.until}.csv`; a.click();
 }
 
 // ── events ────────────────────────────────────────────────────────────────
-["#range","#campaign","#kind","#partner","#group","#since","#until","#scaleX","#keepX","#minPurch"].forEach(s => $(s).addEventListener("change", () => {
+$("#acct").addEventListener("change", fillCampaigns);
+["#range","#acct","#campaign","#kind","#partner","#group","#since","#until","#scaleX","#keepX","#minPurch"].forEach(s => $(s).addEventListener("change", () => {
   $("#customDates").style.display = $("#range").value === "custom" ? "" : "none"; render(); }));
 // custom dates come from the calendar only: a click opens it, typing is ignored, and "from" can't pass "to"
 ["#since", "#until"].forEach(s => {

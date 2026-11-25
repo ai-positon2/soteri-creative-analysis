@@ -1,4 +1,4 @@
-"""Soteri Skin: Meta creative analysis dashboard.
+"""Meta creative analysis dashboard (Soteri Skin, CABA Design: one service per client, the same code).
 
 A small web server (standard library only) that reads the Meta ad account every REFRESH_HOURS, keeps the daily
 ad-level rows on disk (the Railway volume when there is one), and serves one page that works out, for any date
@@ -6,7 +6,9 @@ range, which creatives to scale, keep or cut against the account's average ROAS,
 
 Environment:
   META_ADS_ACCESS_TOKEN   System User token with ads_read on the account (required unless DEMO=1)
-  META_AD_ACCOUNT_ID      default 261215873024315 (Soteri Skin)
+  CLIENT_NAME             the client's name on the page, default "Soteri Skin"
+  META_AD_ACCOUNT_IDS     the ad accounts read, comma separated (CABA Design has three); the page gets an Account filter when there are several
+  META_AD_ACCOUNT_ID      one ad account, when META_AD_ACCOUNT_IDS is not set: default 261215873024315 (Soteri Skin)
   DASH_PASSWORD           when set, the page asks for it (any user name)
   LOOKBACK_DAYS           days of history kept, default 90
   REFRESH_HOURS           how often Meta is re-read, default 24 (once a day; the Refresh button reads it any time)
@@ -18,6 +20,7 @@ import gzip
 import hmac
 import json
 import os
+import re
 import threading
 import time
 import traceback
@@ -34,8 +37,10 @@ PASSWORD = os.environ.get("DASH_PASSWORD", "")
 LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "90"))
 REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "24"))
 DEMO = os.environ.get("DEMO", "").strip().lower() in ("1", "true", "yes", "on")
+CLIENT = os.environ.get("CLIENT_NAME", "").strip() or "Soteri Skin"
+SLUG = re.sub(r"[^a-z0-9]+", "-", CLIENT.lower()).strip("-") or "client"
 _vol = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
-CACHE = Path(os.environ.get("CACHE_FILE") or (Path(_vol) if _vol else ROOT / "cache") / "soteri_meta.json")
+CACHE = Path(os.environ.get("CACHE_FILE") or (Path(_vol) if _vol else ROOT / "cache") / ("soteri_meta.json" if SLUG == "soteri-skin" else SLUG + "_meta.json"))
 
 
 class State:
@@ -55,7 +60,7 @@ def compact(data):
     ads = dict(data["ads"])
     for r in data["rows"]:                       # ads Meta no longer returns (deleted) keep their names from the rows
         if r["ad_id"] not in ads:
-            ads[r["ad_id"]] = {"name": r["ad_name"], "status": "DELETED", "campaign": r["campaign"], "adset": r["adset"],
+            ads[r["ad_id"]] = {"name": r["ad_name"], "status": "DELETED", "campaign": r["campaign"], "adset": r["adset"], "account": r.get("account", ""),
                                "format": "Unknown", "cta": "Unknown", "partnership": None, "partnership_ids": "", "hook": "", "body": "", "headline": "", "thumb": "", "video_id": "",
                                "creative_id": "", "post_url": "", "created": ""}
     ids = sorted(ads)
@@ -63,9 +68,13 @@ def compact(data):
     rows = [[r["date"], idx[r["ad_id"]], round(r["spend"], 2), r["impressions"], r["clicks"], r["purchases"],
              round(r["revenue"], 2), r["atc"], r["v3"], r["thru"]] for r in data["rows"]]
     rows.sort()
+    first = (data.get("account") or {}).get("id", "")
+    for a in ads.values():                       # a cache from before several accounts were read: everything is the one account's
+        a.setdefault("account", first)
     out = {k: v for k, v in data.items() if k not in ("rows", "ads")}
+    out.setdefault("accounts", [data["account"]] if data.get("account") else [])
     out.update({"ads": [dict(ads[k], id=k) for k in ids], "rows": rows,
-                "builtAt": data.get("builtAt"), "error": State.error, "refreshHours": REFRESH_HOURS})
+                "builtAt": data.get("builtAt"), "error": State.error, "refreshHours": REFRESH_HOURS, "client": CLIENT, "slug": SLUG})
     return out
 
 
@@ -81,7 +90,7 @@ def refresh():
     State.refreshing = True
     try:
         if DEMO:
-            data = demo.make(LOOKBACK)
+            data = demo.make(LOOKBACK, accounts=int(os.environ.get("DEMO_ACCOUNTS", "1") or 1), client=CLIENT)
         else:
             data = meta.pull(State.data, LOOKBACK, log=log)
         data["builtAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -159,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _ask_password(self):
         self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="Soteri creative analysis"')
+        self.send_header("WWW-Authenticate", 'Basic realm="%s creative analysis"' % CLIENT.replace('"', ""))
         self.send_header("Content-Length", "0")
         self.end_headers()
 

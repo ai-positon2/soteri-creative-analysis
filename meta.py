@@ -1,7 +1,7 @@
 """Meta Marketing API reader for the creative analysis: daily ad-level results plus each ad's creative.
 
-Read only. The ad account is META_AD_ACCOUNT_ID (Soteri Skin: 261215873024315), the token is
-META_ADS_ACCESS_TOKEN (a System User token with ads_read on that account).
+Read only. The ad accounts are META_AD_ACCOUNT_IDS (comma separated, e.g. CABA's three) or META_AD_ACCOUNT_ID (default Soteri Skin:
+261215873024315); the token is META_ADS_ACCESS_TOKEN (a System User token with ads_read on those accounts).
 
 What is read:
   * the account's name, currency and time zone;
@@ -44,9 +44,15 @@ def token():
     return os.environ.get("META_ADS_ACCESS_TOKEN", "").strip().strip("\"'")
 
 
-def account_id():
-    d = re.sub(r"\D", "", os.environ.get("META_AD_ACCOUNT_ID", "261215873024315"))
-    return "act_" + d
+def account_ids():
+    """The ad accounts read, in the order given: META_AD_ACCOUNT_IDS (comma separated) or META_AD_ACCOUNT_ID."""
+    raw = os.environ.get("META_AD_ACCOUNT_IDS") or os.environ.get("META_AD_ACCOUNT_ID") or "261215873024315"
+    out = []
+    for part in re.split(r"[,;\s]+", raw):
+        d = re.sub(r"\D", "", part)
+        if d and "act_" + d not in out:
+            out.append("act_" + d)
+    return out
 
 
 class Api:
@@ -194,25 +200,24 @@ def describe_creative(c):
 
 # ── the whole pull ──────────────────────────────────────────────────────────
 
-def fetch_account(api):
-    a = api.get(account_id(), {"fields": "name,currency,timezone_name"})
-    return {"id": a.get("id", account_id()), "name": a.get("name", ""), "currency": a.get("currency", "USD"),
-            "timezone": a.get("timezone_name", "")}
+def fetch_account(api, act):
+    a = api.get(act, {"fields": "name,currency,timezone_name"})
+    return {"id": act, "name": a.get("name", "") or act, "currency": a.get("currency", "USD"), "timezone": a.get("timezone_name", "")}
 
 
-def fetch_insights(api, since, until, log=print):
-    """Daily ad-level rows for every ad that spent between since and until (dates, inclusive)."""
+def fetch_insights(api, act, since, until, log=print):
+    """Daily ad-level rows for every ad of one account that spent between since and until (dates, inclusive)."""
     rows, d = [], since
     while d <= until:
         end = min(d + timedelta(days=CHUNK_DAYS - 1), until)
-        got = api.pages(account_id() + "/insights", {
+        got = api.pages(act + "/insights", {
             "level": "ad", "time_increment": 1, "fields": INSIGHT_FIELDS, "limit": 500,
             "time_range": json.dumps({"since": d.isoformat(), "until": end.isoformat()}),
             "filtering": json.dumps([{"field": "spend", "operator": "GREATER_THAN", "value": 0}]),
             "action_breakdowns": "action_type",
         })
-        rows += [parse_row(r) for r in got]
-        log("  insights %s → %s: %d rows" % (d, end, len(got)))
+        rows += [dict(parse_row(r), account=act) for r in got]
+        log("  %s insights %s → %s: %d rows" % (act, d, end, len(got)))
         d = end + timedelta(days=1)
     return rows
 
@@ -238,19 +243,19 @@ def _extras(api, creative_id):
             return creative_id, None, None
 
 
-def fetch_ads(api, ad_ids):
+def fetch_ads(api, act, ad_ids):
     """Name, status, campaign, ad set and creative of each ad (read from the account's ads edge, filtered to these
     ids, a hundred at a time: Graph v26 dropped the ?ids= lookup), plus larger thumbnails."""
     ads, ids = {}, sorted(set(ad_ids))
     for i in range(0, len(ids), 100):
-        got = api.pages(account_id() + "/ads", {
+        got = api.pages(act + "/ads", {
             "fields": "id," + AD_FIELDS, "limit": 100,
             "filtering": json.dumps([{"field": "id", "operator": "IN", "value": ids[i:i + 100]},
                                      {"field": "effective_status", "operator": "IN", "value": ALL_STATUSES}]),
         })
         for a in got:
             info = describe_creative(a.get("creative"))
-            info.update({"name": a.get("name", ""), "status": a.get("effective_status", ""),
+            info.update({"name": a.get("name", ""), "status": a.get("effective_status", ""), "account": act,
                          "created": (a.get("created_time") or "")[:10],
                          "campaign": (a.get("campaign") or {}).get("name", ""),
                          "adset": (a.get("adset") or {}).get("name", ""),
@@ -272,25 +277,55 @@ def fetch_ads(api, ad_ids):
     return ads
 
 
-def pull(cache, lookback_days=90, refetch_days=7, log=print):
-    """A fresh copy of the data: rows older than refetch_days are kept from the cache, the rest re-read
+def pull_one(api, act, cache, first, today, refetch_days, log):
+    """(account, rows, ads, warning) of one ad account: rows older than refetch_days are kept from the cache, the rest re-read
     (Meta keeps attributing purchases to recent days for a week)."""
+    single = len(account_ids()) == 1                 # a cache written before several accounts were read carries no account on its rows
+    old_rows = [r for r in (cache or {}).get("rows", []) if r["date"] >= first.isoformat() and r.get("account", act if single else None) == act]
+    have = {r["date"] for r in old_rows}
+    cut = today - timedelta(days=refetch_days)
+    keep = [dict(r, account=act) for r in old_rows if r["date"] < cut.isoformat()]
+    since = cut if have and min(have) <= first.isoformat() else first
+    log("Reading Meta %s: %s → %s" % (act, since, today))
+    account = fetch_account(api, act)
+    rows = keep + [r for r in fetch_insights(api, act, since, today, log) if r["date"] >= since.isoformat()]
+    warning = ""
+    try:
+        ads = fetch_ads(api, act, [r["ad_id"] for r in rows])
+    except RuntimeError as e:          # the results still show, named from the insights rows, without pictures or formats
+        log("Creative details failed:", e)
+        ads = {k: dict(v, account=act) for k, v in (cache or {}).get("ads", {}).items() if v.get("account", act if single else None) == act}
+        warning = "%s: creative details (thumbnails, formats, copy) could not be read: %s" % (account["name"], e)
+    return account, rows, ads, warning
+
+
+def pull(cache, lookback_days=90, refetch_days=7, log=print):
+    """A fresh copy of the data for every ad account. An account that cannot be read is left out and named in the warning
+    (its last good rows are kept); every account failing is raised."""
     api = Api()
     today = date.today()
     first = today - timedelta(days=lookback_days - 1)
-    old_rows = [r for r in (cache or {}).get("rows", []) if r["date"] >= first.isoformat()]
-    have = {r["date"] for r in old_rows}
-    cut = today - timedelta(days=refetch_days)
-    keep = [r for r in old_rows if r["date"] < cut.isoformat()]
-    since = cut if have and min(have) <= first.isoformat() else first
-    log("Reading Meta %s: %s → %s" % (account_id(), since, today))
-    rows = keep + [r for r in fetch_insights(api, since, today, log) if r["date"] >= since.isoformat()]
-    warning = ""
-    try:
-        ads = fetch_ads(api, [r["ad_id"] for r in rows])
-    except RuntimeError as e:          # the results still show, named from the insights rows, without pictures or formats
-        log("Creative details failed:", e)
-        ads, warning = (cache or {}).get("ads", {}), "Creative details (thumbnails, formats, copy) could not be read: %s" % e
-    log("Done: %d rows, %d ads, %d requests" % (len(rows), len(ads), api.requests))
-    return {"account": fetch_account(api), "rows": rows, "ads": ads, "since": first.isoformat(), "until": today.isoformat(),
-            "purchase_types": PURCHASE_TYPES, "warning": warning}
+    accounts, rows, ads, warnings, errors = [], [], {}, [], []
+    for act in account_ids():
+        try:
+            a, r, d, w = pull_one(api, act, cache, first, today, refetch_days, log)
+        except RuntimeError as e:
+            log("Account %s failed: %s" % (act, e))
+            errors.append(e)
+            old = [x for x in (cache or {}).get("accounts", []) if x.get("id") == act]
+            if old:                                  # keep showing what was read before
+                accounts += old
+                rows += [x for x in (cache or {}).get("rows", []) if x.get("account") == act and x["date"] >= first.isoformat()]
+                ads.update({k: v for k, v in (cache or {}).get("ads", {}).items() if v.get("account") == act})
+            warnings.append("%s could not be read: %s" % (old[0]["name"] if old else act, e))
+            continue
+        accounts.append(a)
+        rows += r
+        ads.update(d)
+        if w:
+            warnings.append(w)
+    if len(errors) == len(account_ids()):
+        raise errors[0]
+    log("Done: %d accounts, %d rows, %d ads, %d requests" % (len(accounts), len(rows), len(ads), api.requests))
+    return {"account": accounts[0] if accounts else {"id": "", "name": "", "currency": "USD"}, "accounts": accounts, "rows": rows, "ads": ads,
+            "since": first.isoformat(), "until": today.isoformat(), "purchase_types": PURCHASE_TYPES, "warning": " · ".join(warnings)}
