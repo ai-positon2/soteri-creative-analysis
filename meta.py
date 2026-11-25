@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
 GRAPH = "https://graph.facebook.com/" + os.environ.get("META_API_VERSION", "v23.0").strip()
@@ -25,7 +26,10 @@ CHUNK_DAYS = 10            # insights are read ten days at a time so one request
 # the purchase action counted, first one present wins (never summed: Meta reports the same purchase under several of these)
 PURCHASE_TYPES = [t.strip() for t in os.environ.get(
     "PURCHASE_ACTION", "omni_purchase,offsite_conversion.fb_pixel_purchase,purchase,onsite_web_purchase").split(",") if t.strip()]
-ATC_TYPES = ["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]
+# every status an ad that spent can be in now, archived included (the ads edge leaves archived ones out unless asked)
+ALL_STATUSES = ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "ARCHIVED", "PENDING_REVIEW", "IN_PROCESS",
+                "WITH_ISSUES", "DISAPPROVED", "PREAPPROVED", "PENDING_BILLING_INFO"]
+ATC_TYPES =["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]
 INSIGHT_FIELDS = "ad_id,ad_name,adset_name,campaign_name,spend,impressions,inline_link_clicks,actions,action_values,video_thruplay_watched_actions"
 AD_FIELDS = ("name,effective_status,created_time,campaign{id,name},adset{id,name},"
              "creative{id,object_type,title,body,image_url,thumbnail_url,video_id,object_story_spec,asset_feed_spec,"
@@ -202,28 +206,34 @@ def fetch_insights(api, since, until, log=print):
     return rows
 
 
+def _thumb(api, creative_id):
+    try:
+        return creative_id, api.get(creative_id, {"fields": "thumbnail_url", "thumbnail_width": 400, "thumbnail_height": 400}).get("thumbnail_url")
+    except RuntimeError:
+        return creative_id, None
+
+
 def fetch_ads(api, ad_ids):
-    """Name, status, campaign, ad set and creative of each ad, read fifty at a time, plus larger thumbnails."""
+    """Name, status, campaign, ad set and creative of each ad (read from the account's ads edge, filtered to these
+    ids, a hundred at a time: Graph v26 dropped the ?ids= lookup), plus larger thumbnails."""
     ads, ids = {}, sorted(set(ad_ids))
-    for i in range(0, len(ids), 50):
-        got = api.get("", {"ids": ",".join(ids[i:i + 50]), "fields": AD_FIELDS})
-        for ad_id, a in got.items():
+    for i in range(0, len(ids), 100):
+        got = api.pages(account_id() + "/ads", {
+            "fields": "id," + AD_FIELDS, "limit": 100,
+            "filtering": json.dumps([{"field": "id", "operator": "IN", "value": ids[i:i + 100]},
+                                     {"field": "effective_status", "operator": "IN", "value": ALL_STATUSES}]),
+        })
+        for a in got:
             info = describe_creative(a.get("creative"))
             info.update({"name": a.get("name", ""), "status": a.get("effective_status", ""),
                          "created": (a.get("created_time") or "")[:10],
                          "campaign": (a.get("campaign") or {}).get("name", ""),
                          "adset": (a.get("adset") or {}).get("name", "")})
-            ads[ad_id] = info
-    # thumbnail_url is 64px unless asked for bigger; ask for the creatives that have no full-size picture
+            ads[a["id"]] = info
+    # thumbnail_url is 64px unless asked for bigger; one read per creative, eight at a time
     need = sorted({a["creative_id"] for a in ads.values() if a["creative_id"]})
-    big = {}
-    for i in range(0, len(need), 50):
-        try:
-            got = api.get("", {"ids": ",".join(need[i:i + 50]), "fields": "thumbnail_url",
-                               "thumbnail_width": 400, "thumbnail_height": 400})
-            big.update({k: v.get("thumbnail_url") for k, v in got.items() if v.get("thumbnail_url")})
-        except RuntimeError:
-            pass
+    with ThreadPoolExecutor(8) as pool:
+        big = {k: v for k, v in pool.map(lambda c: _thumb(api, c), need) if v}
     for a in ads.values():
         if a["format"] in ("Video", "Flexible (videos)", "Flexible (mixed)", "Carousel", "Catalog") or not a["thumb"]:
             a["thumb"] = big.get(a["creative_id"]) or a["thumb"]
@@ -243,7 +253,12 @@ def pull(cache, lookback_days=90, refetch_days=7, log=print):
     since = cut if have and min(have) <= first.isoformat() else first
     log("Reading Meta %s: %s → %s" % (account_id(), since, today))
     rows = keep + [r for r in fetch_insights(api, since, today, log) if r["date"] >= since.isoformat()]
-    ads = fetch_ads(api, [r["ad_id"] for r in rows])
+    warning = ""
+    try:
+        ads = fetch_ads(api, [r["ad_id"] for r in rows])
+    except RuntimeError as e:          # the results still show, named from the insights rows, without pictures or formats
+        log("Creative details failed:", e)
+        ads, warning = (cache or {}).get("ads", {}), "Creative details (thumbnails, formats, copy) could not be read: %s" % e
     log("Done: %d rows, %d ads, %d requests" % (len(rows), len(ads), api.requests))
     return {"account": fetch_account(api), "rows": rows, "ads": ads, "since": first.isoformat(), "until": today.isoformat(),
-            "purchase_types": PURCHASE_TYPES}
+            "purchase_types": PURCHASE_TYPES, "warning": warning}
