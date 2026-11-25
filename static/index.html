@@ -52,7 +52,7 @@ main { padding-bottom:48px; }
 .banner { padding:11px 16px; border-radius:12px; font-size:13px; margin-bottom:12px; border:1px solid; }
 .banner.demo { background:color-mix(in srgb,var(--early) 10%,transparent); color:var(--early); border-color:color-mix(in srgb,var(--early) 30%,transparent); }
 .banner.err { background:color-mix(in srgb,var(--cut) 10%,transparent); color:var(--cut); border-color:color-mix(in srgb,var(--cut) 30%,transparent); }
-.bar { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; background:var(--panel); border:1px solid var(--line);
+.bar { min-width:0; display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; background:var(--panel); border:1px solid var(--line);
   border-radius:16px; padding:12px 16px; margin-bottom:12px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
 .bar label { display:flex; gap:7px; align-items:center; color:var(--muted); font-size:13px; }
 select, input[type=date], input[type=number], input[type=search] { font:inherit; font-size:13px; color:var(--ink); background:var(--soft);
@@ -74,12 +74,12 @@ button:disabled { opacity:.6; cursor:wait; }
 .badge::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--scale); }
 .rules { font-size:13px; color:var(--muted); }
 .rules b { color:var(--ink); }
-.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:16px 0; }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin:16px 0; }
 .kpi { position:relative; overflow:hidden; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px 16px 13px;
-  box-shadow:var(--shadow); --k:var(--faint); }
+  box-shadow:var(--shadow); --k:var(--faint); min-width:0; }
 .kpi::before { content:""; position:absolute; inset:0 0 auto; height:2px; background:linear-gradient(90deg,var(--k),transparent); }
-.kpi .l { color:var(--muted); font-size:11.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-.kpi .v { font-family:'Bricolage Grotesque','Space Grotesk',sans-serif; font-size:28px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; margin:4px 0 2px; }
+.kpi .l { overflow-wrap:anywhere; color:var(--muted); font-size:11.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.kpi .v { font-family:'Bricolage Grotesque','Space Grotesk',sans-serif; font-size:clamp(22px,2.1vw,28px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; margin:4px 0 2px; }
 .kpi .s { color:var(--muted); font-size:12px; }
 .kpi.avg { --k:var(--avg); border-color:color-mix(in srgb,var(--avg) 40%,transparent); } .kpi.avg .v { color:var(--avg); }
 .kpi.scale { --k:var(--scale); } .kpi.scale .v { color:var(--scale); }
@@ -183,7 +183,7 @@ const $ = s => document.querySelector(s);
 // which client this page is for: /caba is CABA Design, / and /soteri are Soteri Skin (the server knows the list)
 const CLIENT = location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0].toLowerCase() || "soteri";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-let D = null, money, money0;
+let D = null, money, money0, moneyK;
 const S = { tab:"creatives", verdict:"all", q:"", sort:{creatives:["spend",-1], hooks:["hook",-1], copy:["spend",-1], formats:["spend",-1], seg:["spend",-1]},
             segDelim:"_", segPos:0, minSpendTouched:false };
 const VERDICTS = ["Scale","Keep","Cut","Early"];
@@ -205,6 +205,7 @@ async function load() {
   const cur = D.account.currency || "USD";
   money = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, maximumFractionDigits:2});
   money0 = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, maximumFractionDigits:0});
+  moneyK = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, notation:"compact", maximumSignificantDigits:3});
   D.accounts = D.accounts && D.accounts.length ? D.accounts : [D.account];
   document.title = `${D.client || D.account.name} · Creative Analysis`;
   $("#eyebrow").textContent = `Meta · ${D.client || D.account.name}`;
@@ -305,7 +306,7 @@ function compute() {
   const avg = all.roas;
   const autoMin = all.purch ? Math.round(all.spend / all.purch) : 50;
   if (!S.minSpendTouched) $("#minSpend").value = autoMin;
-  $("#minSpendNote").textContent = S.minSpendTouched ? `(account CPA is ${money0.format(autoMin)})` : "(one average CPA)";
+  $("#minSpendNote").textContent = S.minSpendTouched ? `(account CPA is ${cost(autoMin)})` : "(one average CPA)";
   const rules = { avg, scaleX:+$("#scaleX").value || 1.2, keepX:+$("#keepX").value || 0.8, minPurch:+$("#minPurch").value || 0, minSpend:+$("#minSpend").value || 0 };
   return { since, until, perAd:[...perAd.values()].map(finish), total, rules };
 }
@@ -315,7 +316,7 @@ function judge(t, R) {
   t.ratio = ratio;
   if (t.spend < R.minSpend) { t.verdict = "Early"; t.why = `${money0.format(t.spend)} spent, needs ${money0.format(R.minSpend)} before judging`; }
   else if (ratio >= R.scaleX && t.purch >= R.minPurch) { t.verdict = "Scale"; t.why = `ROAS ${t.roas.toFixed(2)} is ${ratio.toFixed(2)}× the average`; }
-  else if (ratio >= R.keepX) { t.verdict = "Keep"; t.why = ratio >= R.scaleX ? `ROAS high but only ${t.purch} purchase${t.purch==1?"":"s"}` : `ROAS ${t.roas.toFixed(2)} is near the average`; }
+  else if (ratio >= R.keepX) { t.verdict = "Keep"; t.why = ratio >= R.scaleX ? `ROAS high but only ${cnt(t.purch)} purchase${t.purch==1?"":"s"}` : `ROAS ${t.roas.toFixed(2)} is near the average`; }
   else { t.verdict = "Cut"; t.why = t.purch ? `ROAS ${t.roas.toFixed(2)} is ${(100 - ratio*100).toFixed(0)}% below the average` : `${money0.format(t.spend)} spent, no purchases`; }
   return t;
 }
@@ -344,6 +345,9 @@ function creatives(C) {
 
 // ── formatting ────────────────────────────────────────────────────────────
 const num = x => x == null || !x ? "—" : Math.round(x).toLocaleString();
+const cnt = x => Math.round(x || 0).toLocaleString();                                   // a count that may be 0
+const big = x => Math.abs(x) >= 1e5 ? moneyK.format(x) : Math.abs(x) >= 1000 || !x ? money0.format(x) : money.format(x);   // $2.17M, $48,210, $512.40
+const cost = x => x == null ? "—" : Math.abs(x) >= 100 ? money0.format(x) : money.format(x);                       // a cost per something: cents only while they matter
 const partLabel = a => a.partnership === true ? "Partnership ad" : a.partnership === false ? "Brand ad" : "Not known";
 const pct = (x, d=1) => x == null ? "—" : (x*100).toFixed(d) + "%";
 const rx = x => x ? x.toFixed(2) + "×" : "—";
@@ -399,15 +403,15 @@ function render() {
   // KPIs
   const by = v => list.filter(t => t.verdict === v);
   const sum = (a, f) => a.reduce((s, t) => s + t[f], 0);
-  const kv = (cls, l, v, s) => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s||""}</div></div>`;
-  const vk = v => { const a = by(v), sp = sum(a, "spend"); return kv(v.toLowerCase(), VLABEL[v], a.length, `${money0.format(sp)} · ${T.spend ? (sp/T.spend*100).toFixed(0) : 0}% of spend`); };
+  const kv = (cls, l, v, s, full) => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v"${full ? ` title="${esc(full)}"` : ""}>${v}</div><div class="s">${s||""}</div></div>`;
+  const vk = v => { const a = by(v), sp = sum(a, "spend"); return kv(v.toLowerCase(), VLABEL[v], cnt(a.length), `${big(sp)} · ${T.spend ? (sp/T.spend*100).toFixed(0) : 0}% of spend`); };
   const P = T.paused;
   const A = T.all, F = T.filtered, fl = F ? adFilterLabel() : "";
-  $("#kpis").innerHTML = kv("", F ? `Spend · ${esc(fl)}` : "Spend · active campaigns", money.format(T.spend),
-      `${C.since} → ${C.until}${F && A.spend ? ` · ${(T.spend/A.spend*100).toFixed(0)}% of all spend` : ""}${P.spend >= 1 ? `<br>incl. ${money0.format(P.spend)} from ads paused since` : ""}`)
-    + kv("", "Purchase value", money.format(T.rev), `${Math.round(T.purch)} purchases${P.purch ? ` (${Math.round(P.purch)} from paused ads)` : ""}`)
-    + (F ? kv("", `ROAS · ${esc(fl)}`, T.spend ? T.roas.toFixed(2) : "—", `CPA ${T.cpa ? money.format(T.cpa) : "—"}`) : "")
-    + kv("avg", F ? "Average ROAS · all ads (benchmark)" : "Average ROAS (benchmark)", A.spend ? A.roas.toFixed(2) : "—", `CPA ${A.cpa ? money.format(A.cpa) : "—"}`)
+  $("#kpis").innerHTML = kv("", F ? `Spend · ${esc(fl)}` : "Spend · active campaigns", big(T.spend),
+      `${C.since} → ${C.until}${F && A.spend ? ` · ${(T.spend/A.spend*100).toFixed(0)}% of all spend` : ""}${P.spend >= 1 ? `<br>incl. ${big(P.spend)} from ads paused since` : ""}`, money.format(T.spend))
+    + kv("", "Purchase value", big(T.rev), `${cnt(T.purch)} purchases${P.purch ? ` (${cnt(P.purch)} from paused ads)` : ""}`, money.format(T.rev))
+    + (F ? kv("", `ROAS · ${esc(fl)}`, T.spend ? T.roas.toFixed(2) : "—", `CPA ${cost(T.cpa)}`) : "")
+    + kv("avg", F ? "Average ROAS · all ads (benchmark)" : "Average ROAS (benchmark)", A.spend ? A.roas.toFixed(2) : "—", `CPA ${cost(A.cpa)}`)
     + VERDICTS.map(vk).join("");
   renderCreatives(C, list); renderHooks(C, list); renderFormats(C, list);
 }
@@ -418,7 +422,7 @@ function renderCreatives(C, list) {
   let rows = list.filter(t => S.verdict === "all" || t.verdict === S.verdict);
   if (S.q) { const q = S.q.toLowerCase(); rows = rows.filter(t => (t.ad.name + " " + t.ad.campaign + " " + t.ad.adset + " " + t.ad.hook).toLowerCase().includes(q)); }
   const pts = list.filter(t => t.spend > 0).map(t => ({x:t.spend, y:t.roas, c:VCOLOR(t.verdict), r: 4 + Math.min(6, Math.sqrt(t.purch)),
-    tip:`${t.ad.name} — ${VLABEL[t.verdict]}\nSpend ${money0.format(t.spend)} · ROAS ${t.roas.toFixed(2)} · ${Math.round(t.purch)} purchases`}));
+    tip:`${t.ad.name} — ${VLABEL[t.verdict]}\nSpend ${money0.format(t.spend)} · ROAS ${t.roas.toFixed(2)} · ${cnt(t.purch)} purchases`}));
   const multi = $("#group").value === "name";
   const cols = [
     {k:"thumb", h:"", f:t => thumb(t.ad), v:t => 0},
@@ -429,8 +433,8 @@ function renderCreatives(C, list) {
     {k:"rev", h:"Purchase value", num:1, f:t => money0.format(t.rev)},
     {k:"roas", h:"ROAS", num:1, f:t => t.roas.toFixed(2)},
     {k:"ratio", h:"vs avg", num:1, f:t => vsAvg(t, R.avg)},
-    {k:"purch", h:"Purch.", num:1, f:t => Math.round(t.purch)},
-    {k:"cpa", h:"CPA", num:1, f:t => t.cpa ? money.format(t.cpa) : "—"},
+    {k:"purch", h:"Purch.", num:1, f:t => cnt(t.purch)},
+    {k:"cpa", h:"CPA", num:1, f:t => cost(t.cpa)},
     {k:"ctr", h:"CTR", num:1, title:"Link clicks ÷ impressions", f:t => pct(t.ctr, 2)},
     {k:"hook", h:"Hook rate", num:1, title:"3-second video plays ÷ impressions (videos only)", f:t => pct(t.hook)},
     {k:"v3", h:"3-sec views", num:1, title:"Video plays of at least 3 seconds", f:t => num(t.v3)},
@@ -484,7 +488,7 @@ function renderHooks(C, list) {
     {k:"spend", h:"Spend", num:1, f:g => money0.format(g.spend)},
     {k:"roas", h:"ROAS", num:1, f:g => g.roas.toFixed(2)},
     {k:"ratio", h:"vs avg", num:1, f:g => vsAvg(g, R.avg)},
-    {k:"purch", h:"Purch.", num:1, f:g => Math.round(g.purch)},
+    {k:"purch", h:"Purch.", num:1, f:g => cnt(g.purch)},
     {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
     {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
     {k:"verdict", h:"Verdict", v:g => VERDICTS.indexOf(g.verdict), f:g => pill(g.verdict)},
@@ -513,7 +517,7 @@ function renderFormats(C, list) {
       {k:"roas", h:"ROAS", f:g => `<div class="barcell"><div style="display:flex;justify-content:space-between"><b>${g.roas.toFixed(2)}</b>${vsAvg(g, R.avg)}</div>
          <div style="position:relative"><div class="b" style="width:${g.roas/maxR*100}%;background:${VCOLOR(g.verdict)}"></div>
          <div style="position:absolute;top:-3px;left:${R.avg/maxR*100}%;width:2px;height:14px;background:var(--avg)" title="Average ROAS"></div></div></div>`},
-      {k:"cpa", h:"CPA", num:1, f:g => g.cpa ? money.format(g.cpa) : "—"},
+      {k:"cpa", h:"CPA", num:1, f:g => cost(g.cpa)},
       {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
       {k:"cvr", h:"Conv. rate", num:1, title:"Purchases ÷ link clicks", f:g => pct(g.cvr, 2)},
       {k:"v3", h:"3-sec views", num:1, f:g => num(g.v3)},
@@ -548,7 +552,7 @@ function renderFormats(C, list) {
     {k:"spend", h:"Spend", num:1, f:g => money0.format(g.spend)},
     {k:"roas", h:"ROAS", num:1, f:g => g.roas.toFixed(2)},
     {k:"ratio", h:"vs avg", num:1, f:g => vsAvg(g, R.avg)},
-    {k:"purch", h:"Purch.", num:1, f:g => Math.round(g.purch)},
+    {k:"purch", h:"Purch.", num:1, f:g => cnt(g.purch)},
     {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
     {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
     {k:"verdict", h:"Verdict", v:g => VERDICTS.indexOf(g.verdict), f:g => pill(g.verdict)},
