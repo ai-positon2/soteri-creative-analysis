@@ -197,7 +197,7 @@ async function load() {
   if (d.loading) {
     const mins = d.started ? Math.max(0, Math.round((Date.now() - new Date(d.started)) / 60000)) : null;
     $("#meta").innerHTML = d.waiting ? `Waiting for the other client's read to finish, then ${esc(d.client || "this client")} is read from Meta. This page reloads by itself.`
-      : `Reading ${esc(d.client || "Meta")} from Meta for the first time${mins != null ? ` (started ${mins} min ago)` : ""}: 90 days of every ad, then each creative. This page reloads by itself.`
+      : `Reading ${esc(d.client || "this client")}'s ads from Meta${mins != null ? ` (started ${mins} min ago)` : ""}: the last 90 days of results, then each ad's creative. This page reloads by itself.`
         + (d.progress ? `<br><span style="color:var(--faint)">Now: ${esc(d.progress)}</span>` : "");
     banners(d); setTimeout(load, 8000); return;
   }

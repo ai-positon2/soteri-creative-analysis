@@ -210,7 +210,7 @@ def fetch_insights(api, act, since, until, log=print):
             "action_breakdowns": "action_type",
         })
         rows += [dict(parse_row(r), account=act) for r in got]
-        log("%s: results %s to %s read (%d rows)" % (act, d, end, len(got)))
+        log("results %s to %s read" % (day(d), day(end)))
         d = end + timedelta(days=1)
     return rows
 
@@ -257,7 +257,7 @@ def fetch_ads(api, act, ad_ids, log=print):
             ads[a["id"]] = info
     # thumbnail_url is 64px unless asked for bigger, and partnership settings; one read per creative, eight at a time
     need = sorted({a["creative_id"] for a in ads.values() if a["creative_id"]})
-    log("%s: %d ads read, now thumbnails and partnership settings of %d creatives" % (act, len(ads), len(need)))
+    log("%d ads read, now the pictures and partnership settings of their %d creatives" % (len(ads), len(need)))
     with ThreadPoolExecutor(8) as pool:
         got = list(pool.map(lambda c: _extras(api, c), need))
     big = {k: t for k, t, _ in got if t}
@@ -271,7 +271,12 @@ def fetch_ads(api, act, ad_ids, log=print):
     return ads
 
 
-def pull_one(api, act, cache, first, today, refetch_days, log, single):
+def day(d):
+    """28 Aug"""
+    return "%d %s" % (d.day, d.strftime("%b"))
+
+
+def pull_one(api, act, cache, first, today, refetch_days, log, single, pos=(1, 1)):
     """(account, rows, ads, warning) of one ad account: rows older than refetch_days are kept from the cache, the rest re-read
     (Meta keeps attributing purchases to recent days for a week)."""
     # single: a cache written before several accounts were read carries no account on its rows, so they are this one's
@@ -280,8 +285,10 @@ def pull_one(api, act, cache, first, today, refetch_days, log, single):
     cut = today - timedelta(days=refetch_days)
     keep = [dict(r, account=act) for r in old_rows if r["date"] < cut.isoformat()]
     since = cut if have and min(have) <= first.isoformat() else first
-    log("Reading Meta %s: %s → %s" % (act, since, today))
     account = fetch_account(api, act)
+    tag = account["name"] + (" (account %d of %d)" % pos if pos[1] > 1 else "")
+    log = (lambda base: lambda *a: base(tag + ":", *a))(log)        # every step names the account it is on
+    log("reading results %s to %s" % (day(since), day(today)))
     rows = keep + [r for r in fetch_insights(api, act, since, today, log) if r["date"] >= since.isoformat()]
     warning = ""
     try:
@@ -301,9 +308,9 @@ def pull(cache, account_ids, lookback_days=90, refetch_days=7, log=print):
     first = today - timedelta(days=lookback_days - 1)
     accounts, rows, ads, warnings, errors = [], [], {}, [], []
     ids = [act_id(a) for a in account_ids]
-    for act in ids:
+    for i, act in enumerate(ids, 1):
         try:
-            a, r, d, w = pull_one(api, act, cache, first, today, refetch_days, log, len(ids) == 1)
+            a, r, d, w = pull_one(api, act, cache, first, today, refetch_days, log, len(ids) == 1, (i, len(ids)))
         except RuntimeError as e:
             log("Account %s failed: %s" % (act, e))
             errors.append(e)
