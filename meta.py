@@ -29,10 +29,14 @@ PURCHASE_TYPES = [t.strip() for t in os.environ.get(
 # every status an ad that spent can be in now, archived included (the ads edge leaves archived ones out unless asked)
 ALL_STATUSES = ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "ARCHIVED", "PENDING_REVIEW", "IN_PROCESS",
                 "WITH_ISSUES", "DISAPPROVED", "PREAPPROVED", "PENDING_BILLING_INFO"]
-ATC_TYPES =["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]
+CTA = {"LEARN_MORE": "Learn more", "SHOP_NOW": "Shop now", "SIGN_UP": "Sign up", "BOOK_NOW": "Book now", "CONTACT_US": "Contact us",
+       "GET_OFFER": "Get offer", "SUBSCRIBE": "Subscribe", "ORDER_NOW": "Order now", "BUY_NOW": "Buy now", "GET_STARTED": "Get started",
+       "SEE_MORE": "See more", "SEE_DETAILS": "See details", "WATCH_MORE": "Watch more", "APPLY_NOW": "Apply now", "DOWNLOAD": "Download",
+       "GET_QUOTE": "Get quote", "SEND_MESSAGE": "Send message", "MESSAGE_PAGE": "Send message", "CALL_NOW": "Call now", "NO_BUTTON": "No button"}
+ATC_TYPES = ["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]
 INSIGHT_FIELDS = "ad_id,ad_name,adset_name,campaign_name,spend,impressions,inline_link_clicks,actions,action_values,video_thruplay_watched_actions"
 AD_FIELDS = ("name,effective_status,created_time,campaign{id,name,effective_status},adset{id,name,effective_status},"
-             "creative{id,object_type,title,body,image_url,thumbnail_url,video_id,object_story_spec,asset_feed_spec,"
+             "creative{id,object_type,title,body,image_url,thumbnail_url,video_id,call_to_action_type,object_story_spec,asset_feed_spec,"
              "instagram_permalink_url,effective_object_story_id,product_set_id}")
 
 
@@ -171,9 +175,13 @@ def describe_creative(c):
     else:
         fmt = "Other"
 
+    afs_cta = afs.get("call_to_action_types") or [x.get("type") for x in afs.get("call_to_actions") or [] if isinstance(x, dict)]
+    cta = (c.get("call_to_action_type") or (link.get("call_to_action") or {}).get("type") or (video.get("call_to_action") or {}).get("type")
+           or (tmpl.get("call_to_action") or {}).get("type") or (afs_cta[0] if afs_cta else "") or "")
     story = c.get("effective_object_story_id") or ""
     return {
         "format": fmt,
+        "cta": CTA.get(cta, cta.replace("_", " ").capitalize()) if cta else "No button",
         "body": body.strip(),
         "hook": _first_line(body),
         "headline": " ".join(str(title).split()),
@@ -209,11 +217,25 @@ def fetch_insights(api, since, until, log=print):
     return rows
 
 
-def _thumb(api, creative_id):
+def _picked(d):
+    """Any id-like value under a branded-content field: Meta doesn't document the names a partnership ad is read back under."""
+    d = d if isinstance(d, dict) else {}
+    return next((str(v) for v in d.values() if isinstance(v, (str, int)) and str(v)), "")
+
+
+def _extras(api, creative_id):
+    """A 400px thumbnail and the Partnership-ad (branded content) settings of one creative. Some accounts refuse the
+    branded-content fields: then the thumbnail is read alone and partnership is None (unknown), never a failed pull."""
+    q = {"thumbnail_width": 400, "thumbnail_height": 400}
     try:
-        return creative_id, api.get(creative_id, {"fields": "thumbnail_url", "thumbnail_width": 400, "thumbnail_height": 400}).get("thumbnail_url")
+        c = api.get(creative_id, dict(q, fields="thumbnail_url,facebook_branded_content,instagram_branded_content"))
+        fb, ig = _picked(c.get("facebook_branded_content")), _picked(c.get("instagram_branded_content"))
+        return creative_id, c.get("thumbnail_url"), {"on": bool(fb or ig), "fb": bool(fb), "ig": bool(ig)}
     except RuntimeError:
-        return creative_id, None
+        try:
+            return creative_id, api.get(creative_id, dict(q, fields="thumbnail_url")).get("thumbnail_url"), None
+        except RuntimeError:
+            return creative_id, None, None
 
 
 def fetch_ads(api, ad_ids):
@@ -235,11 +257,16 @@ def fetch_ads(api, ad_ids):
                          "campaign_status": (a.get("campaign") or {}).get("effective_status", ""),
                          "adset_status": (a.get("adset") or {}).get("effective_status", "")})
             ads[a["id"]] = info
-    # thumbnail_url is 64px unless asked for bigger; one read per creative, eight at a time
+    # thumbnail_url is 64px unless asked for bigger, and partnership settings; one read per creative, eight at a time
     need = sorted({a["creative_id"] for a in ads.values() if a["creative_id"]})
     with ThreadPoolExecutor(8) as pool:
-        big = {k: v for k, v in pool.map(lambda c: _thumb(api, c), need) if v}
+        got = list(pool.map(lambda c: _extras(api, c), need))
+    big = {k: t for k, t, _ in got if t}
+    branded = {k: b for k, _, b in got}
     for a in ads.values():
+        b = branded.get(a["creative_id"])
+        a["partnership"] = None if b is None else b["on"]
+        a["partnership_ids"] = "" if not b or not b["on"] else ("Facebook + Instagram" if b["fb"] and b["ig"] else "Facebook" if b["fb"] else "Instagram")
         if a["format"] in ("Video", "Flexible (videos)", "Flexible (mixed)", "Carousel", "Catalog") or not a["thumb"]:
             a["thumb"] = big.get(a["creative_id"]) or a["thumb"]
     return ads

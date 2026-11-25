@@ -235,7 +235,7 @@ function add(t, r) { t.spend += r[2]; t.impr += r[3]; t.clicks += r[4]; t.purch 
 function finish(t) {
   t.roas = t.spend ? t.rev / t.spend : 0; t.cpa = t.purch ? t.spend / t.purch : null;
   t.ctr = t.impr ? t.clicks / t.impr : 0; t.cvr = t.clicks ? t.purch / t.clicks : 0;
-  t.hook = t.v3 && t.impr ? t.v3 / t.impr : null; t.hold = t.v3 ? t.thru / t.v3 : null;
+  t.hook = t.v3 && t.impr ? t.v3 / t.impr : null; t.hold = t.v3 ? t.thru / t.v3 : null; t.cp3 = t.v3 ? t.spend / t.v3 : null;
   return t;
 }
 
@@ -297,6 +297,8 @@ function creatives(C) {
 }
 
 // ── formatting ────────────────────────────────────────────────────────────
+const num = x => x == null || !x ? "—" : Math.round(x).toLocaleString();
+const partLabel = a => a.partnership === true ? "Partnership ad" : a.partnership === false ? "Brand ad" : "Not known";
 const pct = (x, d=1) => x == null ? "—" : (x*100).toFixed(d) + "%";
 const rx = x => x ? x.toFixed(2) + "×" : "—";
 const vsAvg = (t, avg) => { if (!avg || !t.spend) return "—"; const d = t.roas/avg - 1; return `<span class="${d>=0?"up":"down"}">${d>=0?"+":""}${(d*100).toFixed(0)}%</span>`; };
@@ -373,7 +375,7 @@ function renderCreatives(C, list) {
   const cols = [
     {k:"thumb", h:"", f:t => thumb(t.ad), v:t => 0},
     {k:"name", h:"Creative", v:t => t.ad.name.toLowerCase(), f:t => `<div class="name">${esc(t.ad.name)}<span class="st ${t.ad.status}">${esc((t.ad.status||"").replace(/_/g," ").toLowerCase())}</span></div>
-      <div class="small">${esc(t.ad.format)} · ${esc(t.ad.campaign)}${multi && t.ads.length > 1 ? ` · in ${t.ads.length} ad sets` : ` · ${esc(t.ad.adset)}`}</div><div class="small">${links(t.ad)}</div>`},
+      <div class="small">${esc(t.ad.format)}${t.ad.partnership ? ` · <span style="color:var(--avg)">Partnership${t.ad.partnership_ids ? " (" + esc(t.ad.partnership_ids) + ")" : ""}</span>` : ""}${t.ad.cta ? " · " + esc(t.ad.cta) : ""} · ${esc(t.ad.campaign)}${multi && t.ads.length > 1 ? ` · in ${t.ads.length} ad sets` : ` · ${esc(t.ad.adset)}`}</div><div class="small">${links(t.ad)}</div>`},
     {k:"verdict", h:"Verdict", v:t => VERDICTS.indexOf(t.verdict), f:t => `${pill(t.verdict)}<div class="small" style="max-width:220px">${esc(t.why)}</div>`},
     {k:"spend", h:"Spend", num:1, f:t => money0.format(t.spend)},
     {k:"rev", h:"Purchase value", num:1, f:t => money0.format(t.rev)},
@@ -383,6 +385,7 @@ function renderCreatives(C, list) {
     {k:"cpa", h:"CPA", num:1, f:t => t.cpa ? money.format(t.cpa) : "—"},
     {k:"ctr", h:"CTR", num:1, title:"Link clicks ÷ impressions", f:t => pct(t.ctr, 2)},
     {k:"hook", h:"Hook rate", num:1, title:"3-second video plays ÷ impressions (videos only)", f:t => pct(t.hook)},
+    {k:"v3", h:"3-sec views", num:1, title:"Video plays of at least 3 seconds", f:t => num(t.v3)},
   ];
   $("#tab-creatives").innerHTML = `
     <div class="card"><h2>Spend vs ROAS</h2><p class="sub">Every creative with spend in the range. Above the green line: scale. Below the red line: cut. Bigger dots have more purchases.</p>
@@ -417,6 +420,8 @@ function renderHooks(C, list) {
     {k:"name", h:"Video", v:t => t.ad.name.toLowerCase(), f:t => `<div class="name">${esc(t.ad.name)}</div><div class="small hook">${esc(t.ad.hook ? "“" + t.ad.hook + "”" : "")}</div>`},
     {k:"hook", h:"Hook rate", num:1, title:"3-second plays ÷ impressions: how many stop scrolling", f:t => `<span class="${t.hook>=avgHook?"up":"down"}">${pct(t.hook)}</span>`},
     {k:"hold", h:"Hold rate", num:1, title:"ThruPlays ÷ 3-second plays: how many keep watching", f:t => `<span class="${t.hold>=avgHold?"up":"down"}">${pct(t.hold)}</span>`},
+    {k:"v3", h:"3-sec views", num:1, f:t => num(t.v3)},
+    {k:"cp3", h:"Cost / 3-sec view", num:1, f:t => t.cp3 ? money.format(t.cp3) : "—"},
     {k:"ctr", h:"CTR", num:1, f:t => pct(t.ctr, 2)},
     {k:"roas", h:"ROAS", num:1, f:t => t.roas.toFixed(2)},
     {k:"spend", h:"Spend", num:1, f:t => money0.format(t.spend)},
@@ -438,7 +443,7 @@ function renderHooks(C, list) {
   ];
   $("#tab-hooks").innerHTML = `
     <div class="card"><h2>Video hooks: does the first 3 seconds stop the scroll, and does it sell?</h2>
-      <p class="sub">Videos with at least 1,000 impressions. Average hook rate <b>${pct(avgHook)}</b> (vertical line), average hold rate <b>${pct(avgHold)}</b>, average ROAS <b>${R.avg.toFixed(2)}</b>. "Converts" means ROAS above the Cut line (${(R.avg*R.keepX).toFixed(2)}).</p>
+      <p class="sub">Videos with at least 1,000 impressions: <b>${num(tot.v3)}</b> 3-second views at <b>${tot.v3 ? money.format(vids.reduce((s, t) => s + t.spend, 0) / tot.v3) : "—"}</b> each. Average hook rate <b>${pct(avgHook)}</b> (vertical line), average hold rate <b>${pct(avgHold)}</b>, average ROAS <b>${R.avg.toFixed(2)}</b>. "Converts" means ROAS above the Cut line (${(R.avg*R.keepX).toFixed(2)}).</p>
       ${scatter(pts, {xlog:false, label:"Hook rate vs ROAS", xlabel:"Hook rate (3-second plays ÷ impressions)", xfmt:v => pct(v, 0), yfmt:v => v.toFixed(1),
         lines:[{y:R.avg*R.keepX, c:"var(--cut)", t:`Cut < ${(R.avg*R.keepX).toFixed(2)}`}, {y:R.avg, c:"var(--avg)", t:`Average ROAS ${R.avg.toFixed(2)}`, dash:"", w:1.5}], vline:avgHook})}
       ${table("t-vid", vcols, vids, "hooks")}</div>
@@ -449,21 +454,29 @@ function renderHooks(C, list) {
 
 function renderFormats(C, list) {
   const R = C.rules, T = C.total;
-  const fm = groupBy(C.perAd, t => t.ad.format || "Other").filter(g => g.spend >= 1);
-  fm.forEach(g => { judge(g, R); g.n = g.ads.length; g.verdicts = VERDICTS.map(v => [v, list.filter(t => t.ads.some(a => a.format === g.key) && t.verdict === v).length]); });
-  const maxR = Math.max(...fm.map(g => g.roas), R.avg) || 1;
-  const fcols = [
-    {k:"key", h:"Format", f:g => `<b>${esc(g.key)}</b><div class="small">${g.n} ad${g.n>1?"s":""}</div>`},
-    {k:"spend", h:"Spend", num:1, f:g => `${money0.format(g.spend)}<div class="small">${T.spend ? (g.spend/T.spend*100).toFixed(0) : 0}% of total</div>`},
-    {k:"roas", h:"ROAS", f:g => `<div class="barcell"><div style="display:flex;justify-content:space-between"><b>${g.roas.toFixed(2)}</b>${vsAvg(g, R.avg)}</div>
-       <div style="position:relative"><div class="b" style="width:${g.roas/maxR*100}%;background:${VCOLOR(g.verdict)}"></div>
-       <div style="position:absolute;top:-3px;left:${R.avg/maxR*100}%;width:2px;height:14px;background:var(--avg)" title="Average ROAS"></div></div></div>`},
-    {k:"cpa", h:"CPA", num:1, f:g => g.cpa ? money.format(g.cpa) : "—"},
-    {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
-    {k:"cvr", h:"Conv. rate", num:1, title:"Purchases ÷ link clicks", f:g => pct(g.cvr, 2)},
-    {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
-    {k:"mix", h:"Creatives by verdict", v:g => g.verdicts[0][1], f:g => g.verdicts.filter(x => x[1]).map(([v, n]) => `<span class="pill v-${v}" style="margin:1px">${n} ${VLABEL[v].toLowerCase()}</span>`).join(" ")},
-  ];
+  // one table per way of slicing the creatives: spend, return against the average, the funnel, video attention, verdict mix
+  function breakdown(id, label, keyOf) {
+    const gs = groupBy(C.perAd, t => keyOf(t.ad)).filter(g => g.spend >= 1);
+    gs.forEach(g => { judge(g, R); g.n = g.ads.length; g.verdicts = VERDICTS.map(v => [v, list.filter(t => t.ads.some(a => keyOf(a) === g.key) && t.verdict === v).length]); });
+    const maxR = Math.max(...gs.map(g => g.roas), R.avg) || 1;
+    const cols = [
+      {k:"key", h:label, f:g => `<b>${esc(g.key)}</b><div class="small">${g.n} ad${g.n>1?"s":""}</div>`},
+      {k:"spend", h:"Spend", num:1, f:g => `${money0.format(g.spend)}<div class="small">${T.spend ? (g.spend/T.spend*100).toFixed(0) : 0}% of total</div>`},
+      {k:"roas", h:"ROAS", f:g => `<div class="barcell"><div style="display:flex;justify-content:space-between"><b>${g.roas.toFixed(2)}</b>${vsAvg(g, R.avg)}</div>
+         <div style="position:relative"><div class="b" style="width:${g.roas/maxR*100}%;background:${VCOLOR(g.verdict)}"></div>
+         <div style="position:absolute;top:-3px;left:${R.avg/maxR*100}%;width:2px;height:14px;background:var(--avg)" title="Average ROAS"></div></div></div>`},
+      {k:"cpa", h:"CPA", num:1, f:g => g.cpa ? money.format(g.cpa) : "—"},
+      {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
+      {k:"cvr", h:"Conv. rate", num:1, title:"Purchases ÷ link clicks", f:g => pct(g.cvr, 2)},
+      {k:"v3", h:"3-sec views", num:1, f:g => num(g.v3)},
+      {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
+      {k:"mix", h:"Creatives by verdict", v:g => g.verdicts[0][1], f:g => g.verdicts.filter(x => x[1]).map(([v, n]) => `<span class="pill v-${v}" style="margin:1px">${n} ${VLABEL[v].toLowerCase()}</span>`).join(" ")},
+    ];
+    if (!S.sort[id]) S.sort[id] = ["spend", -1];
+    return table("t-" + id, cols, gs, id);
+  }
+  const unknownPartner = C.perAd.filter(t => t.ad.partnership == null).length;
+  const ugcNotPartner = C.perAd.filter(t => /(^|[^a-z])ugc([^a-z]|$)/i.test(t.ad.name) && t.ad.partnership === false);
   // ad-name segments (angles, hooks, creators… whatever the naming convention puts in each position)
   const maxSeg = Math.max(1, ...ACTIVE().map(a => a.name.split(S.segDelim).length));
   // tagged names ("…_C:UGC_X:BeforeAfter_…") are compared by tag; otherwise by position
@@ -494,8 +507,15 @@ function renderFormats(C, list) {
   ];
   const delims = [["_","underscore _"],["|","pipe |"],[" - ","spaced dash  - "],["-","dash -"]];
   $("#tab-formats").innerHTML = `
-    <div class="card"><h2>Ad formats</h2><p class="sub">Spend and return by format. The purple tick is the account's average ROAS (${R.avg.toFixed(2)}).</p>
-      ${table("t-fmt", fcols, fm, "formats")}</div>
+    <div class="card"><h2>Ad formats</h2><p class="sub">Spend and return by format. The purple tick is the average ROAS (${R.avg.toFixed(2)}).</p>
+      ${breakdown("formats", "Format", a => a.format || "Other")}</div>
+    <div class="card"><h2>Partnership ads vs brand ads</h2>
+      <p class="sub">Partnership ads run from the brand together with a creator's Facebook or Instagram identity (Meta's branded-content setting on the creative).
+        ${ugcNotPartner.length ? `<b style="color:var(--early)">${ugcNotPartner.length} running ad${ugcNotPartner.length>1?"s":""} named UGC ${ugcNotPartner.length>1?"are":"is"} not set up as a partnership ad.</b>` : ""}
+        ${unknownPartner ? `Meta didn't return the partnership setting for ${unknownPartner} ad${unknownPartner>1?"s":""} (shown as "Not known").` : ""}</p>
+      ${breakdown("partner", "Ad type", partLabel)}</div>
+    <div class="card"><h2>Call-to-action buttons</h2><p class="sub">Which button the ad shows. Flexible ads with several buttons are counted under the first one.</p>
+      ${breakdown("cta", "Button", a => a.cta || "Not known")}</div>
     <div class="card"><h2>Angles, hooks and creators from ad names</h2>
       <p class="sub">Compare ads by a tag in their name (<code>C:UGC</code>, <code>X:Before-After</code>…), or by the part in a fixed position for names without tags.</p>
       <div class="chips"><label class="small">Compare by <select id="segBy">
@@ -516,11 +536,11 @@ const TAGS = {F:"format", SKU:"product", T:"ad type", C:"concept", X:"hook / mes
 // ── CSV of the creatives view ─────────────────────────────────────────────
 function csv() {
   const C = compute(), list = creatives(C);
-  const head = ["Ad name","Ad ID","Status","Format","Campaign","Ad set","Opening line","Verdict","Why","Spend","Purchase value","ROAS","ROAS vs avg","Purchases","CPA","CTR","Hook rate","Hold rate"];
+  const head = ["Ad name","Ad ID","Status","Format","Campaign","Ad set","Opening line","Verdict","Why","Spend","Purchase value","ROAS","ROAS vs avg","Purchases","CPA","CTR","Hook rate","Hold rate","3-sec views","Cost per 3-sec view","Partnership ad","CTA button"];
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = [head.map(q).join(",")].concat(list.sort((a,b) => b.spend - a.spend).map(t => [t.ad.name, t.ads.map(a => a.id).join(" "), t.ad.status, t.ad.format, t.ad.campaign,
     t.ad.adset, t.ad.hook, VLABEL[t.verdict], t.why, t.spend.toFixed(2), t.rev.toFixed(2), t.roas.toFixed(2), (t.ratio||0).toFixed(2), Math.round(t.purch),
-    t.cpa ? t.cpa.toFixed(2) : "", (t.ctr*100).toFixed(2)+"%", t.hook != null ? (t.hook*100).toFixed(1)+"%" : "", t.hold != null ? (t.hold*100).toFixed(1)+"%" : ""].map(q).join(",")));
+    t.cpa ? t.cpa.toFixed(2) : "", (t.ctr*100).toFixed(2)+"%", t.hook != null ? (t.hook*100).toFixed(1)+"%" : "", t.hold != null ? (t.hold*100).toFixed(1)+"%" : "", Math.round(t.v3), t.cp3 ? t.cp3.toFixed(3) : "", partLabel(t.ad), t.ad.cta || ""].map(q).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], {type:"text/csv"}));
   a.download = `soteri-meta-creatives_${C.since}_${C.until}.csv`; a.click();

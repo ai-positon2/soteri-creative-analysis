@@ -56,7 +56,7 @@ def compact(data):
     for r in data["rows"]:                       # ads Meta no longer returns (deleted) keep their names from the rows
         if r["ad_id"] not in ads:
             ads[r["ad_id"]] = {"name": r["ad_name"], "status": "DELETED", "campaign": r["campaign"], "adset": r["adset"],
-                               "format": "Unknown", "hook": "", "body": "", "headline": "", "thumb": "", "video_id": "",
+                               "format": "Unknown", "cta": "Unknown", "partnership": None, "partnership_ids": "", "hook": "", "body": "", "headline": "", "thumb": "", "video_id": "",
                                "creative_id": "", "post_url": "", "created": ""}
     ids = sorted(ads)
     idx = {k: i for i, k in enumerate(ids)}

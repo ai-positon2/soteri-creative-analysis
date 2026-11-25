@@ -25,8 +25,10 @@ chosen dates, ads paused since included, so they match Ads Manager's campaign ro
 - **Hooks**: for videos, hook rate (3-second plays ÷ impressions) and hold rate (ThruPlays ÷ 3-second plays)
   against ROAS, read as *strong/weak hook × converts/doesn't*. For copy, ads grouped by the opening line of the
   primary text with their combined ROAS.
-- **Formats & angles**: ROAS, CPA, CTR, conversion rate and hook rate by format (image, video, carousel,
-  flexible, catalog), and by any part of the ad name (angle, hook tag, creator…) split on `_`, `|` or `-`.
+- **Formats & angles**: ROAS, CPA, CTR, conversion rate, 3-second views and hook rate by format (image, video,
+  carousel, flexible, catalog), by partnership ad vs brand ad, by call-to-action button, and by any tag or part of the
+  ad name (concept, hook, creator…).
+- **3-second views** (video plays of at least 3 seconds) and their cost show on every creative, video and breakdown.
 
 ## Data
 
