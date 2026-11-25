@@ -152,6 +152,8 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
       <option value="60">Last 60 days</option><option value="90">Last 90 days</option><option value="custom">Custom…</option></select></label>
     <span id="customDates" style="display:none"><input type="date" id="since"> – <input type="date" id="until"></span>
     <label>Campaign <select id="campaign"><option value="">All campaigns</option></select></label>
+    <label>Ads <select id="kind"><option value="">All formats</option></select>
+      <select id="partner"><option value="">Partnership + brand</option><option value="1">Partnership ads</option><option value="0">Brand ads</option></select></label>
     <label>Judge by <select id="group">
       <option value="ad">Each ad</option><option value="name">Ad name (same creative across ad sets)</option></select></label>
     <span class="badge" title="Totals and the average ROAS count everything active campaigns spent in the range, ads paused since included, as Ads Manager does. Only ads running now (ad, ad set and campaign on) are judged.">Active campaigns · running ads judged</span>
@@ -199,6 +201,8 @@ async function load() {
   banners(D);
   const camps = [...new Set(D.ads.filter(campaignActive).map(a => a.campaign).filter(Boolean))].sort();
   $("#campaign").innerHTML = `<option value="">All campaigns</option>` + camps.map(c => `<option>${esc(c)}</option>`).join("");
+  const kinds = [...new Set(D.ads.filter(campaignActive).map(kindOf))].sort((a, b) => KIND_ORDER(a) - KIND_ORDER(b) || a.localeCompare(b));
+  $("#kind").innerHTML = `<option value="">All formats</option>` + kinds.map(k => `<option value="${esc(k)}">${esc(KIND_LABEL[k] || k)}</option>`).join("");
   $("#until").value = D.until; $("#since").value = shift(D.until, -29);
   $("#since").min = $("#until").min = D.since; $("#since").max = $("#until").max = D.until;
   // pick the most common name delimiter for the angle breakdown
@@ -220,6 +224,19 @@ function campaignActive(a) {
   if (a.campaign_status) return a.campaign_status === "ACTIVE";
   if (!D._liveCamps) D._liveCamps = new Set(D.ads.filter(x => x.status === "ACTIVE").map(x => x.campaign));
   return D._liveCamps.has(a.campaign);
+}
+// broad format for the Ads filter: single and flexible images together, single and flexible videos together
+const kindOf = a => /video/i.test(a.format || "") ? "Video" : /image/i.test(a.format || "") ? "Image" : (a.format || "Other");
+const KIND_LABEL = {Image:"Image ads (single + flexible)", Video:"Video ads (single + flexible)"};
+const KIND_ORDER = k => ({Image:0, Video:1}[k] ?? 2);
+function adFilter() {
+  const k = $("#kind").value, p = $("#partner").value;
+  if (!k && !p) return null;
+  return a => (!k || kindOf(a) === k) && (!p || (p === "1" ? a.partnership === true : a.partnership === false));
+}
+function adFilterLabel() {
+  const k = $("#kind").value, p = $("#partner").value;
+  return [p === "1" ? "partnership" : p === "0" ? "brand" : "", k ? k.toLowerCase() : ""].filter(Boolean).join(" ") + " ads";
 }
 const daysBetween =(a,b) => Math.round((new Date(b) - new Date(a)) / 864e5);
 const shift = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0,10); };
@@ -244,20 +261,25 @@ function compute() {
   // Totals and the benchmark: everything active campaigns spent in the range, paused ads included (what Ads Manager shows
   // for those campaigns). Creatives judged: only ads Meta calls ACTIVE (the ad, its ad set and its campaign all on).
   const [since, until] = range(), camp = $("#campaign").value;
-  const perAd = new Map(), total = blank(), paused = blank();
+  // The Ads filter (format, partnership) narrows the totals and the creatives, but the benchmark stays the average of all
+  // ads in the chosen campaigns, so a filtered creative is still judged against the account, not against its own kind.
+  const keep = adFilter();
+  const perAd = new Map(), total = blank(), paused = blank(), all = blank();
   for (const r of D.rows) {
     if (r[0] < since || r[0] > until) continue;
     const ad = D.ads[r[1]];
     if (camp && ad.campaign !== camp) continue;
     if (!campaignActive(ad)) continue;
+    add(all, r);
+    if (keep && !keep(ad)) continue;
     add(total, r);
     if (ad.status !== "ACTIVE") { add(paused, r); continue; }
     let t = perAd.get(r[1]); if (!t) { t = blank(); t.ad = ad; t.ads = [ad]; perAd.set(r[1], t); }
     add(t, r);
   }
-  finish(total); total.paused = paused;
-  const avg = total.roas;
-  const autoMin = total.purch ? Math.round(total.spend / total.purch) : 50;
+  finish(total); finish(all); total.paused = paused; total.all = all; total.filtered = !!keep;
+  const avg = all.roas;
+  const autoMin = all.purch ? Math.round(all.spend / all.purch) : 50;
   if (!S.minSpendTouched) $("#minSpend").value = autoMin;
   $("#minSpendNote").textContent = S.minSpendTouched ? `(account CPA is ${money0.format(autoMin)})` : "(one average CPA)";
   const rules = { avg, scaleX:+$("#scaleX").value || 1.2, keepX:+$("#keepX").value || 0.8, minPurch:+$("#minPurch").value || 0, minSpend:+$("#minSpend").value || 0 };
@@ -356,10 +378,12 @@ function render() {
   const kv = (cls, l, v, s) => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s||""}</div></div>`;
   const vk = v => { const a = by(v), sp = sum(a, "spend"); return kv(v.toLowerCase(), VLABEL[v], a.length, `${money0.format(sp)} · ${T.spend ? (sp/T.spend*100).toFixed(0) : 0}% of spend`); };
   const P = T.paused;
-  $("#kpis").innerHTML = kv("", "Spend · active campaigns", money.format(T.spend),
-      `${C.since} → ${C.until}${P.spend >= 1 ? `<br>incl. ${money0.format(P.spend)} from ads paused since` : ""}`)
+  const A = T.all, F = T.filtered, fl = F ? adFilterLabel() : "";
+  $("#kpis").innerHTML = kv("", F ? `Spend · ${esc(fl)}` : "Spend · active campaigns", money.format(T.spend),
+      `${C.since} → ${C.until}${F && A.spend ? ` · ${(T.spend/A.spend*100).toFixed(0)}% of all spend` : ""}${P.spend >= 1 ? `<br>incl. ${money0.format(P.spend)} from ads paused since` : ""}`)
     + kv("", "Purchase value", money.format(T.rev), `${Math.round(T.purch)} purchases${P.purch ? ` (${Math.round(P.purch)} from paused ads)` : ""}`)
-    + kv("avg", "Average ROAS (benchmark)", T.spend ? T.roas.toFixed(2) : "—", `CPA ${T.cpa ? money.format(T.cpa) : "—"}`)
+    + (F ? kv("", `ROAS · ${esc(fl)}`, T.spend ? T.roas.toFixed(2) : "—", `CPA ${T.cpa ? money.format(T.cpa) : "—"}`) : "")
+    + kv("avg", F ? "Average ROAS · all ads (benchmark)" : "Average ROAS (benchmark)", A.spend ? A.roas.toFixed(2) : "—", `CPA ${A.cpa ? money.format(A.cpa) : "—"}`)
     + VERDICTS.map(vk).join("");
   renderCreatives(C, list); renderHooks(C, list); renderFormats(C, list);
 }
@@ -547,7 +571,7 @@ function csv() {
 }
 
 // ── events ────────────────────────────────────────────────────────────────
-["#range","#campaign","#group","#since","#until","#scaleX","#keepX","#minPurch"].forEach(s => $(s).addEventListener("change", () => {
+["#range","#campaign","#kind","#partner","#group","#since","#until","#scaleX","#keepX","#minPurch"].forEach(s => $(s).addEventListener("change", () => {
   $("#customDates").style.display = $("#range").value === "custom" ? "" : "none"; render(); }));
 // custom dates come from the calendar only: a click opens it, typing is ignored, and "from" can't pass "to"
 ["#since", "#until"].forEach(s => {

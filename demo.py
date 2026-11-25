@@ -23,7 +23,7 @@ def make(days=90, n_ads=46, seed=7):
         camp = rnd.choice(["Prospecting | ASC+", "Prospecting | Broad", "Retargeting | 30d"])
         ads[ad_id] = {"name": "%s_%s_%s_v%d" % (angle, fmt.split()[0].upper(), "Eczema" if i % 2 else "Barrier", i % 4 + 1),
                       "status": "ACTIVE" if rnd.random() < .7 else "PAUSED", "created": (today - timedelta(days=rnd.randint(5, 120))).isoformat(),
-                      "campaign": camp, "adset": camp.split("|")[1].strip() + " - US", "format": fmt, "hook": hook,
+                      "campaign": camp, "adset": camp.split("|")[1].strip() + " - US", "format": fmt, "partnership": rnd.random() < .35, "partnership_ids": "Facebook + Instagram", "cta": rnd.choice(["Shop now", "Shop now", "Get offer", "Learn more"]), "hook": hook,
                       "body": hook + "\n\nSoteri's ceramide cream calms flare-ups without steroids.", "headline": "Calm skin in 7 days",
                       "thumb": "", "video_id": "1" if "Video" in fmt else "", "creative_id": "", "post_url": ""}
         quality = rnd.lognormvariate(0, .55) * (1.25 if angle in ("UGC", "Derm") else 1) * (1.2 if fmt == "Video" else 1)
