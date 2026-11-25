@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Soteri Creative Analysis</title>
+<style>
+:root {
+  --bg:#f6f7f9; --panel:#fff; --ink:#17202a; --muted:#5f6b7a; --line:#e3e7ec; --soft:#eef1f5;
+  --accent:#2f5bd3; --scale:#1a8a4a; --scale-bg:#e3f5ea; --keep:#2f5bd3; --keep-bg:#e6edfc;
+  --cut:#c23b2e; --cut-bg:#fbe7e5; --early:#8a6d1a; --early-bg:#f8f0d6; --avg:#7a4cc2;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0f1318; --panel:#171c23; --ink:#e7ebf0; --muted:#97a3b2; --line:#29313b; --soft:#1e252e;
+    --accent:#7d9cf0; --scale:#4cc27c; --scale-bg:#173525; --keep:#7d9cf0; --keep-bg:#1c2847;
+    --cut:#f07a6e; --cut-bg:#3f1c19; --early:#e0c060; --early-bg:#3a3018; --avg:#b18ef0;
+  }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+select option { color:#000; background:#fff; }
+a { color:var(--accent); }
+header { padding:18px 24px 10px; display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:space-between; }
+h1 { font-size:20px; margin:0; } h1 small { font-weight:400; color:var(--muted); font-size:14px; }
+.meta { color:var(--muted); font-size:12.5px; }
+main { padding:0 24px 40px; }
+.banner { margin:0 24px 10px; padding:10px 14px; border-radius:8px; font-size:13px; }
+.banner.demo { background:var(--early-bg); color:var(--early); }
+.banner.err { background:var(--cut-bg); color:var(--cut); }
+.bar { display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; background:var(--panel); border:1px solid var(--line);
+  border-radius:10px; padding:10px 14px; margin-bottom:12px; }
+.bar label { display:flex; gap:6px; align-items:center; color:var(--muted); font-size:13px; }
+select, input[type=date], input[type=number], input[type=search] { font:inherit; color:var(--ink); background:var(--panel);
+  border:1px solid var(--line); border-radius:6px; padding:5px 8px; }
+input[type=number] { width:70px; }
+button { font:inherit; cursor:pointer; border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:6px; padding:5px 12px; }
+button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+.rules { font-size:13px; color:var(--muted); }
+.rules b { color:var(--ink); }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:12px; }
+.kpi { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+.kpi .l { color:var(--muted); font-size:12px; } .kpi .v { font-size:22px; font-weight:650; font-variant-numeric:tabular-nums; }
+.kpi .s { color:var(--muted); font-size:12px; }
+.kpi.avg { border-color:var(--avg); } .kpi.avg .v { color:var(--avg); }
+.kpi.scale .v { color:var(--scale); } .kpi.keep .v { color:var(--keep); } .kpi.cut .v { color:var(--cut); } .kpi.early .v { color:var(--early); }
+.tabs { display:flex; gap:4px; margin:6px 0 12px; border-bottom:1px solid var(--line); }
+.tabs button { border:none; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 14px; color:var(--muted); font-weight:600; }
+.tabs button.on { color:var(--ink); border-bottom-color:var(--accent); }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
+.card h2 { font-size:15px; margin:0 0 4px; } .card p.sub { margin:0 0 10px; color:var(--muted); font-size:13px; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; align-items:center; }
+.chip { border-radius:999px; padding:4px 12px; font-size:13px; }
+.chip.on { background:var(--ink); color:var(--panel); border-color:var(--ink); }
+.tablewrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; color:var(--muted); font-weight:600; font-size:12px; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; cursor:pointer; user-select:none; }
+th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+th.sorted::after { content:" ▾"; } th.sorted.asc::after { content:" ▴"; }
+td { padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+tr:hover td { background:var(--soft); }
+.thumb { width:52px; height:52px; border-radius:6px; object-fit:cover; background:var(--soft); display:flex; align-items:center; justify-content:center;
+  font-size:10px; color:var(--muted); text-align:center; }
+.name { font-weight:600; max-width:340px; word-break:break-word; }
+.small { color:var(--muted); font-size:12px; }
+.hook { max-width:360px; font-style:italic; }
+.pill { display:inline-block; border-radius:999px; padding:2px 9px; font-size:12px; font-weight:600; white-space:nowrap; }
+.v-Scale { background:var(--scale-bg); color:var(--scale); } .v-Keep { background:var(--keep-bg); color:var(--keep); }
+.v-Cut { background:var(--cut-bg); color:var(--cut); } .v-Early { background:var(--early-bg); color:var(--early); }
+.st { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:0 5px; margin-left:4px; }
+.st.ACTIVE { color:var(--scale); border-color:var(--scale); }
+.up { color:var(--scale); } .down { color:var(--cut); }
+.barcell { position:relative; min-width:120px; }
+.barcell .b { height:8px; border-radius:4px; background:var(--accent); opacity:.7; }
+svg text { fill:var(--muted); font-size:11px; }
+.tip { position:fixed; pointer-events:none; background:var(--ink); color:var(--panel); padding:6px 9px; border-radius:6px; font-size:12px; max-width:320px; display:none; z-index:10; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+@media (max-width:900px) { .grid2 { grid-template-columns:1fr; } header, main { padding-left:16px; padding-right:16px; } .banner { margin-left:16px; margin-right:16px; } }
+.empty { color:var(--muted); padding:20px; text-align:center; }
+.legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:4px; }
+.legend i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:-1px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Soteri Skin <small>· Meta creative analysis</small></h1>
+    <div class="meta" id="meta">Loading…</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button id="csv">Download CSV</button>
+    <button id="refresh">Refresh from Meta</button>
+  </div>
+</header>
+<div id="banners"></div>
+<main id="app" style="display:none">
+  <div class="bar">
+    <label>Dates <select id="range">
+      <option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30" selected>Last 30 days</option>
+      <option value="60">Last 60 days</option><option value="90">Last 90 days</option><option value="custom">Custom…</option></select></label>
+    <span id="customDates" style="display:none"><input type="date" id="since"> – <input type="date" id="until"></span>
+    <label>Campaign <select id="campaign"><option value="">All campaigns</option></select></label>
+    <label>Judge by <select id="group">
+      <option value="ad">Each ad</option><option value="name">Ad name (same creative across ad sets)</option></select></label>
+    <label><input type="checkbox" id="activeOnly"> Running ads only</label>
+  </div>
+  <div class="bar rules">
+    <span><b>Scale</b> when ROAS ≥ <input type="number" id="scaleX" step="0.05" value="1.2">× average and ≥ <input type="number" id="minPurch" step="1" value="2"> purchases</span>
+    <span><b>Keep</b> when ROAS ≥ <input type="number" id="keepX" step="0.05" value="0.8">× average</span>
+    <span><b>Cut</b> below that</span>
+    <span><b>Too early</b> until spend ≥ <input type="number" id="minSpend" step="5"> <span id="minSpendNote"></span></span>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="tabs" id="tabs">
+    <button data-tab="creatives" class="on">Creatives: scale / keep / cut</button>
+    <button data-tab="hooks">Hooks</button>
+    <button data-tab="formats">Formats &amp; angles</button>
+  </div>
+  <section id="tab-creatives"></section>
+  <section id="tab-hooks" style="display:none"></section>
+  <section id="tab-formats" style="display:none"></section>
+</main>
+<div class="tip" id="tip"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let D = null, money, money0;
+const S = { tab:"creatives", verdict:"all", q:"", sort:{creatives:["spend",-1], hooks:["hook",-1], copy:["spend",-1], formats:["spend",-1], seg:["spend",-1]},
+            segDelim:"_", segPos:0, minSpendTouched:false };
+const VERDICTS = ["Scale","Keep","Cut","Early"];
+const VLABEL = {Scale:"Scale", Keep:"Keep running", Cut:"Cut", Early:"Too early"};
+const VCOLOR = v => getComputedStyle(document.documentElement).getPropertyValue({Scale:"--scale",Keep:"--keep",Cut:"--cut",Early:"--early"}[v]).trim();
+
+// ── data ──────────────────────────────────────────────────────────────────
+async function load() {
+  const r = await fetch("api/data"); const d = await r.json();
+  if (d.loading) {
+    $("#meta").textContent = "Reading Meta for the first time… this page reloads by itself.";
+    banners(d); setTimeout(load, 8000); return;
+  }
+  D = d;
+  const cur = D.account.currency || "USD";
+  money = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, maximumFractionDigits:2});
+  money0 = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, maximumFractionDigits:0});
+  $("#meta").innerHTML = `${esc(D.account.name)} · ${D.ads.length} ads with spend in the last ${D.rows.length ? daysBetween(D.since, D.until)+1 : 0} days · refreshed ${D.builtAt ? new Date(D.builtAt).toLocaleString() : "—"} (every ${D.refreshHours}h)`;
+  banners(D);
+  const camps = [...new Set(D.ads.map(a => a.campaign).filter(Boolean))].sort();
+  $("#campaign").innerHTML = `<option value="">All campaigns</option>` + camps.map(c => `<option>${esc(c)}</option>`).join("");
+  $("#until").value = D.until; $("#since").value = shift(D.until, -29);
+  $("#since").min = $("#until").min = D.since; $("#since").max = $("#until").max = D.until;
+  // pick the most common name delimiter for the angle breakdown
+  const counts = {"_":0, "|":0, "-":0, " - ":0};
+  D.ads.forEach(a => Object.keys(counts).forEach(k => counts[k] += a.name.split(k).length - 1));
+  S.segDelim = Object.entries(counts).sort((a,b) => b[1]-a[1])[0][0];
+  $("#app").style.display = "";
+  render();
+}
+function banners(d) {
+  let h = "";
+  if (d.demo) h += `<div class="banner demo">Demo data: these numbers are made up. Set META_ADS_ACCESS_TOKEN on the server (and remove DEMO) to see Soteri's real ads.</div>`;
+  if (d.error) h += `<div class="banner err">The last refresh from Meta failed: ${esc(d.error)}${d.rows ? " Showing the last good data." : ""}</div>`;
+  $("#banners").innerHTML = h;
+}
+const daysBetween = (a,b) => Math.round((new Date(b) - new Date(a)) / 864e5);
+const shift = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0,10); };
+
+function range() {
+  const v = $("#range").value;
+  if (v === "custom") return [$("#since").value || D.since, $("#until").value || D.until];
+  return [shift(D.until, -(+v - 1)), D.until];
+}
+
+function blank() { return {spend:0, impr:0, clicks:0, purch:0, rev:0, atc:0, v3:0, thru:0, ads:[]}; }
+function add(t, r) { t.spend += r[2]; t.impr += r[3]; t.clicks += r[4]; t.purch += r[5]; t.rev += r[6]; t.atc += r[7]; t.v3 += r[8]; t.thru += r[9]; }
+function finish(t) {
+  t.roas = t.spend ? t.rev / t.spend : 0; t.cpa = t.purch ? t.spend / t.purch : null;
+  t.ctr = t.impr ? t.clicks / t.impr : 0; t.cvr = t.clicks ? t.purch / t.clicks : 0;
+  t.hook = t.v3 && t.impr ? t.v3 / t.impr : null; t.hold = t.v3 ? t.thru / t.v3 : null;
+  return t;
+}
+
+// per-ad totals for the chosen dates and filters, the account total, and the rules
+function compute() {
+  const [since, until] = range(), camp = $("#campaign").value, activeOnly = $("#activeOnly").checked;
+  const perAd = new Map(), total = blank();
+  for (const r of D.rows) {
+    if (r[0] < since || r[0] > until) continue;
+    const ad = D.ads[r[1]];
+    if (camp && ad.campaign !== camp) continue;
+    if (activeOnly && ad.status !== "ACTIVE") continue;
+    let t = perAd.get(r[1]); if (!t) { t = blank(); t.ad = ad; t.ads = [ad]; perAd.set(r[1], t); }
+    add(t, r); add(total, r);
+  }
+  finish(total);
+  const avg = total.roas;
+  const autoMin = total.purch ? Math.round(total.spend / total.purch) : 50;
+  if (!S.minSpendTouched) $("#minSpend").value = autoMin;
+  $("#minSpendNote").textContent = S.minSpendTouched ? `(account CPA is ${money0.format(autoMin)})` : "(one average CPA)";
+  const rules = { avg, scaleX:+$("#scaleX").value || 1.2, keepX:+$("#keepX").value || 0.8, minPurch:+$("#minPurch").value || 0, minSpend:+$("#minSpend").value || 0 };
+  return { since, until, perAd:[...perAd.values()].map(finish), total, rules };
+}
+
+function judge(t, R) {
+  const ratio = R.avg ? t.roas / R.avg : 0;
+  t.ratio = ratio;
+  if (t.spend < R.minSpend) { t.verdict = "Early"; t.why = `${money0.format(t.spend)} spent, needs ${money0.format(R.minSpend)} before judging`; }
+  else if (ratio >= R.scaleX && t.purch >= R.minPurch) { t.verdict = "Scale"; t.why = `ROAS ${t.roas.toFixed(2)} is ${ratio.toFixed(2)}× the average`; }
+  else if (ratio >= R.keepX) { t.verdict = "Keep"; t.why = ratio >= R.scaleX ? `ROAS high but only ${t.purch} purchase${t.purch==1?"":"s"}` : `ROAS ${t.roas.toFixed(2)} is near the average`; }
+  else { t.verdict = "Cut"; t.why = t.purch ? `ROAS ${t.roas.toFixed(2)} is ${(100 - ratio*100).toFixed(0)}% below the average` : `${money0.format(t.spend)} spent, no purchases`; }
+  return t;
+}
+
+function groupBy(list, keyFn, labelFn) {
+  const m = new Map();
+  for (const t of list) {
+    const k = keyFn(t); if (k == null) continue;
+    let g = m.get(k); if (!g) { g = blank(); g.key = k; g.label = labelFn ? labelFn(t) : k; g.ads = []; m.set(k, g); }
+    ["spend","impr","clicks","purch","rev","atc","v3","thru"].forEach(f => g[f] += t[f]);
+    g.ads.push(...t.ads);
+  }
+  return [...m.values()].map(finish);
+}
+
+// creatives: each ad, or ads sharing a name merged into one row
+function creatives(C) {
+  let list = C.perAd;
+  if ($("#group").value === "name") {
+    list = groupBy(list, t => t.ad.name.trim().toLowerCase(), t => t.ad.name);
+    list.forEach(g => g.ad = g.ads.find(a => a.status === "ACTIVE") || g.ads[0]);
+  }
+  list.forEach(t => judge(t, C.rules));
+  return list;
+}
+
+// ── formatting ────────────────────────────────────────────────────────────
+const pct = (x, d=1) => x == null ? "—" : (x*100).toFixed(d) + "%";
+const rx = x => x ? x.toFixed(2) + "×" : "—";
+const vsAvg = (t, avg) => { if (!avg || !t.spend) return "—"; const d = t.roas/avg - 1; return `<span class="${d>=0?"up":"down"}">${d>=0?"+":""}${(d*100).toFixed(0)}%</span>`; };
+const pill = v => `<span class="pill v-${v}">${VLABEL[v]}</span>`;
+const thumb = a => a.thumb ? `<img class="thumb" loading="lazy" src="${esc(a.thumb)}" alt="">` : `<div class="thumb">${esc(a.format || "")}</div>`;
+const amLink = a => { const act = (D.account.id || "").replace(/\D/g, ""); return act ? `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}&selected_ad_ids=${a.id}` : ""; };
+function links(a) {
+  const out = [];
+  if (!D.demo && amLink(a)) out.push(`<a href="${amLink(a)}" target="_blank" rel="noopener">Ads Manager</a>`);
+  if (a.post_url) out.push(`<a href="${esc(a.post_url)}" target="_blank" rel="noopener">Post</a>`);
+  return out.join(" · ");
+}
+
+function table(id, cols, rows, key) {
+  const [sk, dir] = S.sort[key];
+  const col = cols.find(c => c.k === sk) || cols[0];
+  const val = r => col.v ? col.v(r) : r[col.k];
+  rows = rows.slice().sort((a, b) => { const x = val(a), y = val(b); return (x == null) - (y == null) || (x < y ? -1 : x > y ? 1 : 0) * dir; });
+  if (!rows.length) return `<div class="empty">Nothing in this view.</div>`;
+  return `<div class="tablewrap"><table id="${id}" data-key="${key}"><thead><tr>${cols.map(c =>
+    `<th data-k="${c.k}" class="${c.num?"num":""} ${c.k===sk?"sorted"+(dir>0?" asc":""):""}" ${c.title?`title="${esc(c.title)}"`:""}>${c.h}</th>`).join("")}</tr></thead><tbody>${
+    rows.map(r => `<tr>${cols.map(c => `<td class="${c.num?"num":""}">${c.f(r)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+// ── scatter (spend × ROAS, or hook rate × ROAS) ───────────────────────────
+function scatter(points, o) {
+  const W = 820, H = 300, L = 46, Rm = 14, T = 12, B = 34;
+  if (!points.length) return `<div class="empty">Nothing to plot.</div>`;
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  const xlog = o.xlog;
+  let x0 = Math.min(...xs), x1 = Math.max(...xs); if (xlog) { x0 = Math.max(x0, 1); x1 = Math.max(x1, x0 * 10); }
+  if (x0 === x1) x1 = x0 + 1;
+  const ymax = Math.max(...ys, o.lines.reduce((m, l) => Math.max(m, l.y), 0)) * 1.08 || 1;
+  const fx = x => L + (W - L - Rm) * (xlog ? (Math.log(Math.max(x,x0)) - Math.log(x0)) / (Math.log(x1) - Math.log(x0)) : (x - x0) / (x1 - x0));
+  const fy = y => T + (H - T - B) * (1 - Math.min(y, ymax) / ymax);
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(o.label)}">`;
+  for (let i = 0; i <= 4; i++) { const y = ymax * i / 4; s += `<line x1="${L}" x2="${W-Rm}" y1="${fy(y)}" y2="${fy(y)}" stroke="var(--line)"/><text x="${L-6}" y="${fy(y)+4}" text-anchor="end">${o.yfmt(y)}</text>`; }
+  const ticks = xlog ? [] : [0,1,2,3,4].map(i => x0 + (x1-x0)*i/4);
+  if (xlog) for (let p = Math.pow(10, Math.floor(Math.log10(x0))); p <= x1 * 1.01; p *= 10) [1,3].forEach(m => { const v = p*m; if (v >= x0 && v <= x1) ticks.push(v); });
+  ticks.forEach(v => s += `<text x="${fx(v)}" y="${H-B+16}" text-anchor="middle">${o.xfmt(v)}</text>`);
+  s += `<text x="${(W+L)/2}" y="${H-2}" text-anchor="middle">${esc(o.xlabel)}</text>`;
+  if (o.vline != null) s += `<line x1="${fx(o.vline)}" x2="${fx(o.vline)}" y1="${T}" y2="${H-B}" stroke="var(--avg)" stroke-dasharray="4 4"/>`;
+  o.lines.forEach((l, i) => s += `<line x1="${L}" x2="${W-Rm}" y1="${fy(l.y)}" y2="${fy(l.y)}" stroke="${l.c}" stroke-dasharray="${l.dash||"4 4"}" stroke-width="${l.w||1}"/><text x="${W-Rm-i*150}" y="${fy(l.y)-4}" text-anchor="end" style="fill:${l.c}">${esc(l.t)}</text>`);
+  points.forEach((p, i) => s += `<circle cx="${fx(p.x)}" cy="${fy(p.y)}" r="${p.r||5}" fill="${p.c}" fill-opacity=".75" stroke="var(--panel)" data-tip="${esc(p.tip)}"/>`);
+  return s + `</svg>`;
+}
+
+// ── tabs ──────────────────────────────────────────────────────────────────
+function render() {
+  if (!D) return;
+  const C = compute(), list = creatives(C), R = C.rules, T = C.total;
+  // KPIs
+  const by = v => list.filter(t => t.verdict === v);
+  const sum = (a, f) => a.reduce((s, t) => s + t[f], 0);
+  const kv = (cls, l, v, s) => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s||""}</div></div>`;
+  const vk = v => { const a = by(v), sp = sum(a, "spend"); return kv(v.toLowerCase(), VLABEL[v], a.length, `${money0.format(sp)} · ${T.spend ? (sp/T.spend*100).toFixed(0) : 0}% of spend`); };
+  $("#kpis").innerHTML = kv("", "Spend", money0.format(T.spend), `${C.since} → ${C.until}`) + kv("", "Purchase value", money0.format(T.rev), `${Math.round(T.purch)} purchases`)
+    + kv("avg", "Average ROAS (benchmark)", T.spend ? T.roas.toFixed(2) : "—", `CPA ${T.cpa ? money.format(T.cpa) : "—"}`)
+    + VERDICTS.map(vk).join("");
+  renderCreatives(C, list); renderHooks(C, list); renderFormats(C, list);
+}
+
+function renderCreatives(C, list) {
+  const R = C.rules;
+  const counts = Object.fromEntries(VERDICTS.map(v => [v, list.filter(t => t.verdict === v).length]));
+  let rows = list.filter(t => S.verdict === "all" || t.verdict === S.verdict);
+  if (S.q) { const q = S.q.toLowerCase(); rows = rows.filter(t => (t.ad.name + " " + t.ad.campaign + " " + t.ad.adset + " " + t.ad.hook).toLowerCase().includes(q)); }
+  const pts = list.filter(t => t.spend > 0).map(t => ({x:t.spend, y:t.roas, c:VCOLOR(t.verdict), r: 4 + Math.min(6, Math.sqrt(t.purch)),
+    tip:`${t.ad.name} — ${VLABEL[t.verdict]}\nSpend ${money0.format(t.spend)} · ROAS ${t.roas.toFixed(2)} · ${Math.round(t.purch)} purchases`}));
+  const multi = $("#group").value === "name";
+  const cols = [
+    {k:"thumb", h:"", f:t => thumb(t.ad), v:t => 0},
+    {k:"name", h:"Creative", v:t => t.ad.name.toLowerCase(), f:t => `<div class="name">${esc(t.ad.name)}<span class="st ${t.ad.status}">${esc((t.ad.status||"").replace(/_/g," ").toLowerCase())}</span></div>
+      <div class="small">${esc(t.ad.format)} · ${esc(t.ad.campaign)}${multi && t.ads.length > 1 ? ` · in ${t.ads.length} ad sets` : ` · ${esc(t.ad.adset)}`}</div><div class="small">${links(t.ad)}</div>`},
+    {k:"verdict", h:"Verdict", v:t => VERDICTS.indexOf(t.verdict), f:t => `${pill(t.verdict)}<div class="small" style="max-width:220px">${esc(t.why)}</div>`},
+    {k:"spend", h:"Spend", num:1, f:t => money0.format(t.spend)},
+    {k:"rev", h:"Purchase value", num:1, f:t => money0.format(t.rev)},
+    {k:"roas", h:"ROAS", num:1, f:t => t.roas.toFixed(2)},
+    {k:"ratio", h:"vs avg", num:1, f:t => vsAvg(t, R.avg)},
+    {k:"purch", h:"Purch.", num:1, f:t => Math.round(t.purch)},
+    {k:"cpa", h:"CPA", num:1, f:t => t.cpa ? money.format(t.cpa) : "—"},
+    {k:"ctr", h:"CTR", num:1, title:"Link clicks ÷ impressions", f:t => pct(t.ctr, 2)},
+    {k:"hook", h:"Hook rate", num:1, title:"3-second video plays ÷ impressions (videos only)", f:t => pct(t.hook)},
+  ];
+  $("#tab-creatives").innerHTML = `
+    <div class="card"><h2>Spend vs ROAS</h2><p class="sub">Every creative with spend in the range. Above the green line: scale. Below the red line: cut. Bigger dots have more purchases.</p>
+      ${scatter(pts, {xlog:true, label:"Spend vs ROAS", xlabel:"Spend (log scale)", xfmt:v => money0.format(v), yfmt:v => v.toFixed(1),
+        lines:[{y:R.avg*R.scaleX, c:"var(--scale)", t:`Scale ≥ ${(R.avg*R.scaleX).toFixed(2)}`}, {y:R.avg, c:"var(--avg)", t:`Average ${R.avg.toFixed(2)}`, dash:"", w:1.5},
+               {y:R.avg*R.keepX, c:"var(--cut)", t:`Cut < ${(R.avg*R.keepX).toFixed(2)}`}], vline:R.minSpend})}
+      <div class="legend">${VERDICTS.map(v => `<span><i style="background:${VCOLOR(v)}"></i>${VLABEL[v]}</span>`).join("")}<span>Dashed vertical line: spend needed before judging</span></div></div>
+    <div class="card">
+      <div class="chips">
+        <button class="chip ${S.verdict==="all"?"on":""}" data-v="all">All ${list.length}</button>
+        ${VERDICTS.map(v => `<button class="chip ${S.verdict===v?"on":""}" data-v="${v}">${VLABEL[v]} ${counts[v]}</button>`).join("")}
+        <input type="search" id="q" placeholder="Search name, campaign, hook…" value="${esc(S.q)}" style="margin-left:auto;min-width:220px">
+      </div>
+      ${table("t-cre", cols, rows, "creatives")}
+    </div>`;
+}
+
+function renderHooks(C, list) {
+  const R = C.rules;
+  const vids = list.filter(t => t.hook != null && t.impr >= 1000);
+  const tot = vids.reduce((a, t) => (a.v3 += t.v3, a.impr += t.impr, a.thru += t.thru, a), {v3:0, impr:0, thru:0});
+  const avgHook = tot.impr ? tot.v3 / tot.impr : 0, avgHold = tot.v3 ? tot.thru / tot.v3 : 0;
+  const quad = t => (t.hook >= avgHook ? "Strong hook" : "Weak hook") + ", " + (t.roas >= R.avg * R.keepX ? "converts" : "doesn't convert");
+  const advice = {"Strong hook, converts":"Winner: scale and make variations of this opening",
+                  "Strong hook, doesn't convert":"Stops the scroll, loses them after: fix the body, offer or landing page",
+                  "Weak hook, converts":"Sells once watched: test new first 3 seconds",
+                  "Weak hook, doesn't convert":"Neither works: cut"};
+  const pts = vids.map(t => ({x:t.hook, y:t.roas, c:VCOLOR(t.verdict), r:4 + Math.min(6, Math.sqrt(t.purch)),
+    tip:`${t.ad.name}\nHook rate ${pct(t.hook)} · Hold ${pct(t.hold)} · ROAS ${t.roas.toFixed(2)}\n${quad(t)}`}));
+  const vcols = [
+    {k:"thumb", h:"", f:t => thumb(t.ad), v:() => 0},
+    {k:"name", h:"Video", v:t => t.ad.name.toLowerCase(), f:t => `<div class="name">${esc(t.ad.name)}</div><div class="small hook">${esc(t.ad.hook ? "“" + t.ad.hook + "”" : "")}</div>`},
+    {k:"hook", h:"Hook rate", num:1, title:"3-second plays ÷ impressions: how many stop scrolling", f:t => `<span class="${t.hook>=avgHook?"up":"down"}">${pct(t.hook)}</span>`},
+    {k:"hold", h:"Hold rate", num:1, title:"ThruPlays ÷ 3-second plays: how many keep watching", f:t => `<span class="${t.hold>=avgHold?"up":"down"}">${pct(t.hold)}</span>`},
+    {k:"ctr", h:"CTR", num:1, f:t => pct(t.ctr, 2)},
+    {k:"roas", h:"ROAS", num:1, f:t => t.roas.toFixed(2)},
+    {k:"spend", h:"Spend", num:1, f:t => money0.format(t.spend)},
+    {k:"q", h:"Read", v:t => quad(t), f:t => `<b>${quad(t)}</b><div class="small" style="max-width:240px">${advice[quad(t)]}</div>`},
+    {k:"verdict", h:"Verdict", v:t => VERDICTS.indexOf(t.verdict), f:t => pill(t.verdict)},
+  ];
+  // copy hooks: ads grouped by the opening line of their primary text
+  const copy = groupBy(C.perAd.filter(t => t.ad.hook), t => t.ad.hook.toLowerCase(), t => t.ad.hook);
+  copy.forEach(g => { judge(g, R); g.formats = [...new Set(g.ads.map(a => a.format))].join(", "); });
+  const ccols = [
+    {k:"label", h:"Opening line of the primary text", v:g => g.label.toLowerCase(), f:g => `<div class="hook">“${esc(g.label)}”</div><div class="small">${g.ads.length} ad${g.ads.length>1?"s":""} · ${esc(g.formats)}</div>`},
+    {k:"spend", h:"Spend", num:1, f:g => money0.format(g.spend)},
+    {k:"roas", h:"ROAS", num:1, f:g => g.roas.toFixed(2)},
+    {k:"ratio", h:"vs avg", num:1, f:g => vsAvg(g, R.avg)},
+    {k:"purch", h:"Purch.", num:1, f:g => Math.round(g.purch)},
+    {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
+    {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
+    {k:"verdict", h:"Verdict", v:g => VERDICTS.indexOf(g.verdict), f:g => pill(g.verdict)},
+  ];
+  $("#tab-hooks").innerHTML = `
+    <div class="card"><h2>Video hooks: does the first 3 seconds stop the scroll, and does it sell?</h2>
+      <p class="sub">Videos with at least 1,000 impressions. Average hook rate <b>${pct(avgHook)}</b> (vertical line), average hold rate <b>${pct(avgHold)}</b>, average ROAS <b>${R.avg.toFixed(2)}</b>. "Converts" means ROAS above the Cut line (${(R.avg*R.keepX).toFixed(2)}).</p>
+      ${scatter(pts, {xlog:false, label:"Hook rate vs ROAS", xlabel:"Hook rate (3-second plays ÷ impressions)", xfmt:v => pct(v, 0), yfmt:v => v.toFixed(1),
+        lines:[{y:R.avg*R.keepX, c:"var(--cut)", t:`Cut < ${(R.avg*R.keepX).toFixed(2)}`}, {y:R.avg, c:"var(--avg)", t:`Average ROAS ${R.avg.toFixed(2)}`, dash:"", w:1.5}], vline:avgHook})}
+      ${table("t-vid", vcols, vids, "hooks")}</div>
+    <div class="card"><h2>Copy hooks: which opening lines make money</h2>
+      <p class="sub">Ads grouped by the first line of their primary text (what shows before "See more"), judged with the same rules.</p>
+      ${table("t-copy", ccols, copy, "copy")}</div>`;
+}
+
+function renderFormats(C, list) {
+  const R = C.rules, T = C.total;
+  const fm = groupBy(C.perAd, t => t.ad.format || "Other");
+  fm.forEach(g => { judge(g, R); g.n = g.ads.length; g.verdicts = VERDICTS.map(v => [v, list.filter(t => t.ads.some(a => a.format === g.key) && t.verdict === v).length]); });
+  const maxR = Math.max(...fm.map(g => g.roas), R.avg) || 1;
+  const fcols = [
+    {k:"key", h:"Format", f:g => `<b>${esc(g.key)}</b><div class="small">${g.n} ad${g.n>1?"s":""}</div>`},
+    {k:"spend", h:"Spend", num:1, f:g => `${money0.format(g.spend)}<div class="small">${T.spend ? (g.spend/T.spend*100).toFixed(0) : 0}% of total</div>`},
+    {k:"roas", h:"ROAS", f:g => `<div class="barcell"><div style="display:flex;justify-content:space-between"><b>${g.roas.toFixed(2)}</b>${vsAvg(g, R.avg)}</div>
+       <div style="position:relative"><div class="b" style="width:${g.roas/maxR*100}%;background:${VCOLOR(g.verdict)}"></div>
+       <div style="position:absolute;top:-3px;left:${R.avg/maxR*100}%;width:2px;height:14px;background:var(--avg)" title="Average ROAS"></div></div></div>`},
+    {k:"cpa", h:"CPA", num:1, f:g => g.cpa ? money.format(g.cpa) : "—"},
+    {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
+    {k:"cvr", h:"Conv. rate", num:1, title:"Purchases ÷ link clicks", f:g => pct(g.cvr, 2)},
+    {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
+    {k:"mix", h:"Creatives by verdict", v:g => g.verdicts[0][1], f:g => g.verdicts.filter(x => x[1]).map(([v, n]) => `<span class="pill v-${v}" style="margin:1px">${n} ${VLABEL[v].toLowerCase()}</span>`).join(" ")},
+  ];
+  // ad-name segments (angles, hooks, creators… whatever the naming convention puts in each position)
+  const maxSeg = Math.max(1, ...D.ads.map(a => a.name.split(S.segDelim).length));
+  if (S.segPos >= maxSeg) S.segPos = 0;
+  const segOf = t => { const p = t.ad.name.split(S.segDelim); return p.length > S.segPos ? p[S.segPos].trim() || null : null; };
+  const examples = [...new Set(D.ads.map(a => a.name.split(S.segDelim)[S.segPos]).filter(Boolean))].slice(0, 4).join(", ");
+  const seg = groupBy(C.perAd, segOf);
+  seg.forEach(g => { judge(g, R); g.n = g.ads.length; });
+  const scols = [
+    {k:"key", h:"Name part", f:g => `<b>${esc(g.key)}</b><div class="small">${g.n} ad${g.n>1?"s":""}</div>`},
+    {k:"spend", h:"Spend", num:1, f:g => money0.format(g.spend)},
+    {k:"roas", h:"ROAS", num:1, f:g => g.roas.toFixed(2)},
+    {k:"ratio", h:"vs avg", num:1, f:g => vsAvg(g, R.avg)},
+    {k:"purch", h:"Purch.", num:1, f:g => Math.round(g.purch)},
+    {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
+    {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
+    {k:"verdict", h:"Verdict", v:g => VERDICTS.indexOf(g.verdict), f:g => pill(g.verdict)},
+  ];
+  const delims = [["_","underscore _"],["|","pipe |"],[" - ","spaced dash  - "],["-","dash -"]];
+  $("#tab-formats").innerHTML = `
+    <div class="card"><h2>Ad formats</h2><p class="sub">Spend and return by format. The purple tick is the account's average ROAS (${R.avg.toFixed(2)}).</p>
+      ${table("t-fmt", fcols, fm, "formats")}</div>
+    <div class="card"><h2>Angles, hooks and creators from ad names</h2>
+      <p class="sub">Split ad names into parts and compare one part across ads, e.g. the angle or hook tag your naming convention puts in a fixed position.</p>
+      <div class="chips"><label class="small">Split names on <select id="segDelim">${delims.map(([d,l]) => `<option value="${esc(d)}" ${d===S.segDelim?"selected":""}>${esc(l)}</option>`).join("")}</select></label>
+        <label class="small">and compare part <select id="segPos">${Array.from({length:maxSeg}, (_, i) => `<option value="${i}" ${i===S.segPos?"selected":""}>#${i+1}</option>`).join("")}</select></label>
+        <span class="small">e.g. ${esc(examples)}</span></div>
+      ${table("t-seg", scols, seg, "seg")}</div>`;
+}
+
+// ── CSV of the creatives view ─────────────────────────────────────────────
+function csv() {
+  const C = compute(), list = creatives(C);
+  const head = ["Ad name","Ad ID","Status","Format","Campaign","Ad set","Opening line","Verdict","Why","Spend","Purchase value","ROAS","ROAS vs avg","Purchases","CPA","CTR","Hook rate","Hold rate"];
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [head.map(q).join(",")].concat(list.sort((a,b) => b.spend - a.spend).map(t => [t.ad.name, t.ads.map(a => a.id).join(" "), t.ad.status, t.ad.format, t.ad.campaign,
+    t.ad.adset, t.ad.hook, VLABEL[t.verdict], t.why, t.spend.toFixed(2), t.rev.toFixed(2), t.roas.toFixed(2), (t.ratio||0).toFixed(2), Math.round(t.purch),
+    t.cpa ? t.cpa.toFixed(2) : "", (t.ctr*100).toFixed(2)+"%", t.hook != null ? (t.hook*100).toFixed(1)+"%" : "", t.hold != null ? (t.hold*100).toFixed(1)+"%" : ""].map(q).join(",")));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\n")], {type:"text/csv"}));
+  a.download = `soteri-meta-creatives_${C.since}_${C.until}.csv`; a.click();
+}
+
+// ── events ────────────────────────────────────────────────────────────────
+["#range","#campaign","#group","#activeOnly","#since","#until","#scaleX","#keepX","#minPurch"].forEach(s => $(s).addEventListener("change", () => {
+  $("#customDates").style.display = $("#range").value === "custom" ? "" : "none"; render(); }));
+$("#minSpend").addEventListener("change", () => { S.minSpendTouched = true; render(); });
+$("#tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; S.tab = b.dataset.tab;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  ["creatives","hooks","formats"].forEach(t => $("#tab-" + t).style.display = t === S.tab ? "" : "none"); });
+document.addEventListener("click", e => {
+  const chip = e.target.closest(".chip[data-v]"); if (chip) { S.verdict = chip.dataset.v; render(); return; }
+  const th = e.target.closest("th[data-k]"); if (th) { const key = th.closest("table").dataset.key, k = th.dataset.k;
+    S.sort[key] = [k, S.sort[key][0] === k ? -S.sort[key][1] : -1]; render(); }
+});
+document.addEventListener("change", e => {
+  if (e.target.id === "segDelim") { S.segDelim = e.target.value; S.segPos = 0; render(); }
+  if (e.target.id === "segPos") { S.segPos = +e.target.value; render(); }
+});
+document.addEventListener("input", e => { if (e.target.id === "q") { S.q = e.target.value; const pos = e.target.selectionStart; render(); const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos); } });
+const tip = $("#tip");
+document.addEventListener("mousemove", e => { const t = e.target.closest("[data-tip]");
+  if (!t) { tip.style.display = "none"; return; }
+  tip.style.display = "block"; tip.style.whiteSpace = "pre-line"; tip.textContent = t.dataset.tip;
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - 330) + "px"; tip.style.top = (e.clientY + 12) + "px"; });
+$("#csv").addEventListener("click", csv);
+$("#refresh").addEventListener("click", async () => {
+  const b = $("#refresh"); b.disabled = true; b.textContent = "Refreshing…";
+  await fetch("api/refresh", {method:"POST"});
+  setTimeout(async () => { await load(); b.disabled = false; b.textContent = "Refresh from Meta"; }, 20000);
+});
+load();
+</script>
+</body>
+</html>
