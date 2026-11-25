@@ -30,7 +30,7 @@ PURCHASE_TYPES = [t.strip() for t in os.environ.get(
 ALL_STATUSES = ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "ARCHIVED", "PENDING_REVIEW", "IN_PROCESS",
                 "WITH_ISSUES", "DISAPPROVED", "PREAPPROVED", "PENDING_BILLING_INFO"]
 CTA = {"LEARN_MORE": "Learn more", "SHOP_NOW": "Shop now", "SIGN_UP": "Sign up", "BOOK_NOW": "Book now", "CONTACT_US": "Contact us",
-       "GET_OFFER": "Get offer", "SUBSCRIBE": "Subscribe", "ORDER_NOW": "Order now", "BUY_NOW": "Buy now", "GET_STARTED": "Get started",
+       "GET_OFFER": "Get offer", "GET_OFFER_VIEW": "Get offer", "SUBSCRIBE": "Subscribe", "ORDER_NOW": "Order now", "BUY_NOW": "Buy now", "GET_STARTED": "Get started",
        "SEE_MORE": "See more", "SEE_DETAILS": "See details", "WATCH_MORE": "Watch more", "APPLY_NOW": "Apply now", "DOWNLOAD": "Download",
        "GET_QUOTE": "Get quote", "SEND_MESSAGE": "Send message", "MESSAGE_PAGE": "Send message", "CALL_NOW": "Call now", "NO_BUTTON": "No button"}
 ATC_TYPES = ["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]
