@@ -1,15 +1,16 @@
-"""Meta creative analysis dashboard (Soteri Skin, CABA Design: one service per client, the same code).
+"""Meta creative analysis dashboards: Soteri Skin and CABA Design, served by one web server.
 
-A small web server (standard library only) that reads the Meta ad account every REFRESH_HOURS, keeps the daily
-ad-level rows on disk (the Railway volume when there is one), and serves one page that works out, for any date
-range, which creatives to scale, keep or cut against the account's average ROAS, and which hooks and formats work.
+A small web server (standard library only) that reads each client's Meta ad accounts every REFRESH_HOURS, keeps the
+daily ad-level rows on disk (the Railway volume when there is one), and serves one page per client that works out,
+for any date range, which creatives to scale, keep or cut against the account's average ROAS, and which hooks and
+formats work.
+
+The clients and their ad accounts are written below (CLIENTS). Each has its own link: Soteri at / (and /soteri),
+CABA Design at /caba. A client with several ad accounts gets an Account filter on its page.
 
 Environment:
-  META_ADS_ACCESS_TOKEN   System User token with ads_read on the account (required unless DEMO=1)
-  CLIENT_NAME             the client's name on the page, default "Soteri Skin"
-  META_AD_ACCOUNT_IDS     the ad accounts read, comma separated (CABA Design has three); the page gets an Account filter when there are several
-  META_AD_ACCOUNT_ID      one ad account, when META_AD_ACCOUNT_IDS is not set: default 261215873024315 (Soteri Skin)
-  DASH_PASSWORD           when set, the page asks for it (any user name)
+  META_ADS_ACCESS_TOKEN   System User token with ads_read on every client's ad accounts (required unless DEMO=1)
+  DASH_PASSWORD           when set, the pages ask for it (any user name)
   LOOKBACK_DAYS           days of history kept, default 90
   REFRESH_HOURS           how often Meta is re-read, default 24 (once a day; the Refresh button reads it any time)
   PURCHASE_ACTION         purchase action types tried in order, default omni_purchase,offsite_conversion.fb_pixel_purchase,purchase
@@ -20,7 +21,6 @@ import gzip
 import hmac
 import json
 import os
-import re
 import threading
 import time
 import traceback
@@ -31,31 +31,44 @@ from pathlib import Path
 import demo
 import meta
 
+# The clients: link slug -> name on the page and Meta ad account IDs (in the order the Account filter lists them).
+# The first one is also what the bare link (/) shows. To add a client, add a line here.
+CLIENTS = {
+    "soteri": {"name": "Soteri Skin", "accounts": ["261215873024315"]},
+    "caba": {"name": "CABA Design", "accounts": ["6928133667255774", "1135846647331525", "990238779748852"]},   # CABA Design, Design 2, Design 3
+}
+DEFAULT = next(iter(CLIENTS))
+
 ROOT = Path(__file__).resolve().parent
 PORT = int(os.environ.get("PORT", "8000"))
 PASSWORD = os.environ.get("DASH_PASSWORD", "")
 LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "90"))
 REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "24"))
 DEMO = os.environ.get("DEMO", "").strip().lower() in ("1", "true", "yes", "on")
-CLIENT = os.environ.get("CLIENT_NAME", "").strip() or "Soteri Skin"
-SLUG = re.sub(r"[^a-z0-9]+", "-", CLIENT.lower()).strip("-") or "client"
 _vol = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
-CACHE = Path(os.environ.get("CACHE_FILE") or (Path(_vol) if _vol else ROOT / "cache") / ("soteri_meta.json" if SLUG == "soteri-skin" else SLUG + "_meta.json"))
+CACHE_DIR = Path(_vol) if _vol else ROOT / "cache"
 
 
 class State:
-    data = None          # the last good pull
-    payload = None       # its gzipped JSON for the page
-    error = ""           # the last refresh's failure, shown on the page
-    refreshing = False
-    lock = threading.Lock()
+    """One client's last good pull, its page payload, its last error and whether it is being read now."""
+
+    def __init__(self, slug):
+        self.slug, self.client = slug, CLIENTS[slug]
+        self.data = self.payload = None
+        self.error = ""
+        self.refreshing = False
+        self.lock = threading.Lock()
+        self.cache = CACHE_DIR / ("%s_meta.json" % slug)
+
+
+STATES = {slug: State(slug) for slug in CLIENTS}
 
 
 def log(*a):
     print(datetime.now().strftime("%H:%M:%S"), *a, flush=True)
 
 
-def compact(data):
+def compact(st, data):
     """What the page needs, small: ads keyed by id, and one array per daily row."""
     ads = dict(data["ads"])
     for r in data["rows"]:                       # ads Meta no longer returns (deleted) keep their names from the rows
@@ -73,84 +86,99 @@ def compact(data):
         a.setdefault("account", first)
     out = {k: v for k, v in data.items() if k not in ("rows", "ads")}
     out.setdefault("accounts", [data["account"]] if data.get("account") else [])
-    out.update({"ads": [dict(ads[k], id=k) for k in ids], "rows": rows,
-                "builtAt": data.get("builtAt"), "error": State.error, "refreshHours": REFRESH_HOURS, "client": CLIENT, "slug": SLUG})
+    out.update({"ads": [dict(ads[k], id=k) for k in ids], "rows": rows, "builtAt": data.get("builtAt"), "error": st.error, "refreshHours": REFRESH_HOURS,
+                "client": st.client["name"], "slug": st.slug, "clients": [{"slug": k, "name": v["name"]} for k, v in CLIENTS.items()]})
     return out
 
 
-def publish(data):
-    with State.lock:
-        State.data = data
-        State.payload = gzip.compress(json.dumps(compact(data), separators=(",", ":")).encode())
+def publish(st, data):
+    with st.lock:
+        st.data = data
+        st.payload = gzip.compress(json.dumps(compact(st, data), separators=(",", ":")).encode())
 
 
-def refresh():
-    if State.refreshing:
+def refresh(st):
+    if st.refreshing:
         return
-    State.refreshing = True
+    st.refreshing = True
     try:
         if DEMO:
-            data = demo.make(LOOKBACK, accounts=int(os.environ.get("DEMO_ACCOUNTS", "1") or 1), client=CLIENT)
+            data = demo.make(LOOKBACK, accounts=len(st.client["accounts"]), client=st.client["name"], seed=7 + len(st.slug))
         else:
-            data = meta.pull(State.data, LOOKBACK, log=log)
+            data = meta.pull(st.data, st.client["accounts"], LOOKBACK, log=lambda *a: log("[%s]" % st.slug, *a))
         data["builtAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        State.error = ""
+        st.error = ""
         if not DEMO:
-            CACHE.parent.mkdir(parents=True, exist_ok=True)
-            tmp = CACHE.with_suffix(".tmp")
+            st.cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = st.cache.with_suffix(".tmp")
             tmp.write_text(json.dumps(data))
-            tmp.replace(CACHE)
-        publish(data)
+            tmp.replace(st.cache)
+        publish(st, data)
     except Exception as e:
         traceback.print_exc()
-        State.error = str(e)
-        if State.data:
-            publish(State.data)
+        st.error = str(e)
+        if st.data:
+            publish(st, st.data)
     finally:
-        State.refreshing = False
+        st.refreshing = False
 
 
 def refresh_loop():
     while True:
-        refresh()
+        for st in STATES.values():               # one client after the other, so Meta is never asked twice at once
+            refresh(st)
         time.sleep(max(0.25, REFRESH_HOURS) * 3600)
 
 
 def load_cache():
-    if DEMO or not CACHE.exists():
-        return
-    try:
-        publish(json.loads(CACHE.read_text()))
-        log("Loaded cache from", CACHE)
-    except Exception as e:
-        log("Cache unreadable, starting fresh:", e)
+    for st in STATES.values():                   # soteri_meta.json is the name Soteri's cache already had, so it carries over
+        if DEMO or not st.cache.exists():
+            continue
+        try:
+            publish(st, json.loads(st.cache.read_text()))
+            log("Loaded cache from", st.cache)
+        except Exception as e:
+            log("Cache unreadable, starting fresh:", st.cache, e)
+
+
+def client_of(path, query=""):
+    """The client a request is for: ?client=caba, or the link /caba, else the first client."""
+    for part in query.split("&"):
+        k, _, v = part.partition("=")
+        if k == "client" and v in CLIENTS:
+            return v
+    slug = path.strip("/").split("/")[0].lower()
+    return slug if slug in CLIENTS else DEFAULT
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        path = self.path.split("?")[0]
+        path, _, query = self.path.partition("?")
         if path == "/healthz":
             return self._send(200, b"ok", "text/plain")
         if not self._authorized():
             return self._ask_password()
-        if path in ("/", "/index.html"):
+        if path in ("/", "/index.html") or path.strip("/").lower() in CLIENTS:
             return self._send(200, (ROOT / "static" / "index.html").read_bytes(), "text/html; charset=utf-8")
         if path == "/api/data":
-            if State.payload is None:
-                body = json.dumps({"loading": True, "error": State.error}).encode()
+            st = STATES[client_of(path, query)]
+            if st.payload is None:
+                body = json.dumps({"loading": True, "error": st.error, "client": st.client["name"]}).encode()
                 return self._send(200, body, "application/json")
             if "gzip" in self.headers.get("Accept-Encoding", ""):
-                return self._send(200, State.payload, "application/json", gz=True)
-            return self._send(200, gzip.decompress(State.payload), "application/json")
+                return self._send(200, st.payload, "application/json", gz=True)
+            return self._send(200, gzip.decompress(st.payload), "application/json")
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
         if not self._authorized():
             return self._ask_password()
-        if self.path.split("?")[0] == "/api/refresh":
-            started = not State.refreshing
+        path, _, query = self.path.partition("?")
+        if path == "/api/refresh":
+            st = STATES[client_of(path, query)]
+            started = not st.refreshing
             if started:
-                threading.Thread(target=refresh, daemon=True).start()
+                threading.Thread(target=refresh, args=(st,), daemon=True).start()
             return self._send(202, json.dumps({"started": started}).encode(), "application/json")
         self._send(404, b"not found", "text/plain")
 
@@ -168,7 +196,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _ask_password(self):
         self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="%s creative analysis"' % CLIENT.replace('"', ""))
+        self.send_header("WWW-Authenticate", 'Basic realm="Meta creative analysis"')
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -189,7 +217,8 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     if not DEMO and not meta.token():
         log("META_ADS_ACCESS_TOKEN is not set: the page will say so. Set DEMO=1 to try it with made-up data.")
-        State.error = "META_ADS_ACCESS_TOKEN is not set on the server."
+        for st in STATES.values():
+            st.error = "META_ADS_ACCESS_TOKEN is not set on the server."
     load_cache()
     if DEMO or meta.token():
         threading.Thread(target=refresh_loop, daemon=True).start()

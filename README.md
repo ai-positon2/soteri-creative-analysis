@@ -1,7 +1,8 @@
 # Meta creative analysis (Soteri Skin, CABA Design)
 
-One codebase, one Railway service per client: Soteri Skin (one ad account) and CABA Design (three ad accounts,
-with an **Account** filter on the page). Each service sets its own `CLIENT_NAME` and ad account IDs.
+One service serves every client, each at its own link: Soteri Skin at `/` (and `/soteri`), CABA Design at `/caba`
+(three ad accounts, with an **Account** filter on the page). The clients and their ad account IDs are written in
+`app.py` (`CLIENTS`); a switch in the page header moves between them. Adding a client is one line there.
 
 A dashboard that says which Meta creatives to **scale**, **keep running** or **cut**, judged against the
 account's average ROAS for the date range you pick, and shows which **hooks** and **ad formats** are working.
@@ -44,18 +45,13 @@ Purchases use the first action type present of `omni_purchase`, `offsite_convers
 
 | Variable | |
 |---|---|
-| `META_ADS_ACCESS_TOKEN` | System User token with `ads_read` on the client's ad accounts (required) |
-| `CLIENT_NAME` | the client's name on the page; default `Soteri Skin` |
-| `META_AD_ACCOUNT_IDS` | several ad accounts, comma-separated; the page adds an Account filter (All accounts or one) |
-| `META_AD_ACCOUNT_ID` | one ad account, when `META_AD_ACCOUNT_IDS` is not set; defaults to `261215873024315` (Soteri) |
+| `META_ADS_ACCESS_TOKEN` | System User token with `ads_read` on every client's ad accounts (required) |
 | `DASH_PASSWORD` | optional; the page asks for it |
 | `LOOKBACK_DAYS` | default 90 |
 | `REFRESH_HOURS` | default 24 (once a day); the Refresh button reads Meta any time |
 | `PURCHASE_ACTION` | override the purchase action types, comma-separated |
 
-CABA Design's service: `CLIENT_NAME=CABA Design` and
-`META_AD_ACCOUNT_IDS=6928133667255774,1135846647331525,990238779748852` (CABA Design, Design 2, Design 3).
-An account the token cannot read is left out and named in a banner; the others still show.
+An ad account the token cannot read is left out and named in a banner; the client's other accounts still show.
 
 Attach a volume (any mount path) so the cache survives redeploys. Start command and health check are in
 `railway.json`. No dependencies beyond Python 3.12's standard library.

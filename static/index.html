@@ -139,6 +139,7 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
     <div class="meta" id="meta">Loading…</div>
   </div>
   <div class="actions">
+    <select id="clientSel" title="Switch client" style="display:none"></select>
     <button id="theme" title="Switch light / dark">◐ Theme</button>
     <button id="csv">Download CSV</button>
     <button id="refresh" class="primary">Refresh from Meta</button>
@@ -179,6 +180,8 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
 <div class="tip" id="tip"></div>
 <script>
 const $ = s => document.querySelector(s);
+// which client this page is for: /caba is CABA Design, / and /soteri are Soteri Skin (the server knows the list)
+const CLIENT = location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0].toLowerCase() || "soteri";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let D = null, money, money0;
 const S = { tab:"creatives", verdict:"all", q:"", sort:{creatives:["spend",-1], hooks:["hook",-1], copy:["spend",-1], formats:["spend",-1], seg:["spend",-1]},
@@ -189,7 +192,8 @@ const VCOLOR = v => getComputedStyle(document.documentElement).getPropertyValue(
 
 // ── data ──────────────────────────────────────────────────────────────────
 async function load() {
-  const r = await fetch("api/data"); const d = await r.json();
+  const r = await fetch("/api/data?client=" + encodeURIComponent(CLIENT)); const d = await r.json();
+  if (d.client) $("#eyebrow").textContent = `Meta · ${d.client}`;
   if (d.loading) {
     $("#meta").textContent = "Reading Meta for the first time… this page reloads by itself.";
     banners(d); setTimeout(load, 8000); return;
@@ -201,6 +205,10 @@ async function load() {
   D.accounts = D.accounts && D.accounts.length ? D.accounts : [D.account];
   document.title = `${D.client || D.account.name} · Creative Analysis`;
   $("#eyebrow").textContent = `Meta · ${D.client || D.account.name}`;
+  if (D.clients && D.clients.length > 1) {
+    $("#clientSel").innerHTML = D.clients.map(c => `<option value="${esc(c.slug)}"${c.slug === D.slug ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+    $("#clientSel").style.display = "";
+  }
   const acctNames = D.accounts.length > 1 ? `${D.accounts.length} ad accounts (${D.accounts.map(a => a.name).join(", ")})` : D.account.name;
   $("#acctWrap").style.display = D.accounts.length > 1 ? "" : "none";
   $("#acct").innerHTML = `<option value="">All ${D.accounts.length} accounts</option>` + D.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
@@ -615,6 +623,7 @@ document.addEventListener("mousemove", e => { const t = e.target.closest("[data-
   tip.style.display = "block"; tip.style.whiteSpace = "pre-line"; tip.textContent = t.dataset.tip;
   tip.style.left = Math.min(e.clientX + 12, innerWidth - 330) + "px"; tip.style.top = (e.clientY + 12) + "px"; });
 $("#csv").addEventListener("click", csv);
+$("#clientSel").addEventListener("change", e => { location.href = "/" + e.target.value; });
 $("#theme").addEventListener("click", () => {
   const t = document.documentElement.dataset.theme === "light" ? "dark" : "light";
   document.documentElement.dataset.theme = t; try { localStorage.setItem("theme", t); } catch (e) {}
@@ -622,7 +631,7 @@ $("#theme").addEventListener("click", () => {
 });
 $("#refresh").addEventListener("click", async () => {
   const b = $("#refresh"); b.disabled = true; b.textContent = "Refreshing…";
-  await fetch("api/refresh", {method:"POST"});
+  await fetch("/api/refresh?client=" + encodeURIComponent(CLIENT), {method:"POST"});
   setTimeout(async () => { await load(); b.disabled = false; b.textContent = "Refresh from Meta"; }, 20000);
 });
 load();

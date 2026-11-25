@@ -1,7 +1,7 @@
 """Meta Marketing API reader for the creative analysis: daily ad-level results plus each ad's creative.
 
-Read only. The ad accounts are META_AD_ACCOUNT_IDS (comma separated, e.g. CABA's three) or META_AD_ACCOUNT_ID (default Soteri Skin:
-261215873024315); the token is META_ADS_ACCESS_TOKEN (a System User token with ads_read on those accounts).
+Read only. Which ad accounts each client has is in app.py (CLIENTS); the token is META_ADS_ACCESS_TOKEN, one System User
+token with ads_read on all of them.
 
 What is read:
   * the account's name, currency and time zone;
@@ -44,15 +44,8 @@ def token():
     return os.environ.get("META_ADS_ACCESS_TOKEN", "").strip().strip("\"'")
 
 
-def account_ids():
-    """The ad accounts read, in the order given: META_AD_ACCOUNT_IDS (comma separated) or META_AD_ACCOUNT_ID."""
-    raw = os.environ.get("META_AD_ACCOUNT_IDS") or os.environ.get("META_AD_ACCOUNT_ID") or "261215873024315"
-    out = []
-    for part in re.split(r"[,;\s]+", raw):
-        d = re.sub(r"\D", "", part)
-        if d and "act_" + d not in out:
-            out.append("act_" + d)
-    return out
+def act_id(account_id):
+    return "act_" + re.sub(r"\D", "", str(account_id))
 
 
 class Api:
@@ -277,10 +270,10 @@ def fetch_ads(api, act, ad_ids):
     return ads
 
 
-def pull_one(api, act, cache, first, today, refetch_days, log):
+def pull_one(api, act, cache, first, today, refetch_days, log, single):
     """(account, rows, ads, warning) of one ad account: rows older than refetch_days are kept from the cache, the rest re-read
     (Meta keeps attributing purchases to recent days for a week)."""
-    single = len(account_ids()) == 1                 # a cache written before several accounts were read carries no account on its rows
+    # single: a cache written before several accounts were read carries no account on its rows, so they are this one's
     old_rows = [r for r in (cache or {}).get("rows", []) if r["date"] >= first.isoformat() and r.get("account", act if single else None) == act]
     have = {r["date"] for r in old_rows}
     cut = today - timedelta(days=refetch_days)
@@ -299,16 +292,17 @@ def pull_one(api, act, cache, first, today, refetch_days, log):
     return account, rows, ads, warning
 
 
-def pull(cache, lookback_days=90, refetch_days=7, log=print):
+def pull(cache, account_ids, lookback_days=90, refetch_days=7, log=print):
     """A fresh copy of the data for every ad account. An account that cannot be read is left out and named in the warning
     (its last good rows are kept); every account failing is raised."""
     api = Api()
     today = date.today()
     first = today - timedelta(days=lookback_days - 1)
     accounts, rows, ads, warnings, errors = [], [], {}, [], []
-    for act in account_ids():
+    ids = [act_id(a) for a in account_ids]
+    for act in ids:
         try:
-            a, r, d, w = pull_one(api, act, cache, first, today, refetch_days, log)
+            a, r, d, w = pull_one(api, act, cache, first, today, refetch_days, log, len(ids) == 1)
         except RuntimeError as e:
             log("Account %s failed: %s" % (act, e))
             errors.append(e)
@@ -324,7 +318,7 @@ def pull(cache, lookback_days=90, refetch_days=7, log=print):
         ads.update(d)
         if w:
             warnings.append(w)
-    if len(errors) == len(account_ids()):
+    if len(errors) == len(ids):
         raise errors[0]
     log("Done: %d accounts, %d rows, %d ads, %d requests" % (len(accounts), len(rows), len(ads), api.requests))
     return {"account": accounts[0] if accounts else {"id": "", "name": "", "currency": "USD"}, "accounts": accounts, "rows": rows, "ads": ads,
