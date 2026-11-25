@@ -5,8 +5,9 @@ account's average ROAS for the date range you pick, and shows which **hooks** an
 
 ## How creatives are judged
 
-Only ads Meta reports as ACTIVE are shown: the ad, its ad set and its campaign all on. The benchmark is the average ROAS
-(purchase value ÷ spend) of those active ads for the chosen dates and campaign.
+Totals and the benchmark (average ROAS = purchase value ÷ spend) count everything the active campaigns spent in the
+chosen dates, ads paused since included, so they match Ads Manager's campaign rows. Only ads Meta reports as ACTIVE
+(the ad, its ad set and its campaign all on) are listed and judged.
 
 | Verdict | Rule (all adjustable on the page) |
 |---|---|

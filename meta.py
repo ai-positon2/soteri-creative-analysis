@@ -31,7 +31,7 @@ ALL_STATUSES = ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "ARCHIVED
                 "WITH_ISSUES", "DISAPPROVED", "PREAPPROVED", "PENDING_BILLING_INFO"]
 ATC_TYPES =["omni_add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart"]
 INSIGHT_FIELDS = "ad_id,ad_name,adset_name,campaign_name,spend,impressions,inline_link_clicks,actions,action_values,video_thruplay_watched_actions"
-AD_FIELDS = ("name,effective_status,created_time,campaign{id,name},adset{id,name},"
+AD_FIELDS = ("name,effective_status,created_time,campaign{id,name,effective_status},adset{id,name,effective_status},"
              "creative{id,object_type,title,body,image_url,thumbnail_url,video_id,object_story_spec,asset_feed_spec,"
              "instagram_permalink_url,effective_object_story_id,product_set_id}")
 
@@ -231,7 +231,9 @@ def fetch_ads(api, ad_ids):
             info.update({"name": a.get("name", ""), "status": a.get("effective_status", ""),
                          "created": (a.get("created_time") or "")[:10],
                          "campaign": (a.get("campaign") or {}).get("name", ""),
-                         "adset": (a.get("adset") or {}).get("name", "")})
+                         "adset": (a.get("adset") or {}).get("name", ""),
+                         "campaign_status": (a.get("campaign") or {}).get("effective_status", ""),
+                         "adset_status": (a.get("adset") or {}).get("effective_status", "")})
             ads[a["id"]] = info
     # thumbnail_url is 64px unless asked for bigger; one read per creative, eight at a time
     need = sorted({a["creative_id"] for a in ads.values() if a["creative_id"]})
