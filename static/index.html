@@ -195,7 +195,7 @@ async function load() {
   const cur = D.account.currency || "USD";
   money = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, maximumFractionDigits:2});
   money0 = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, maximumFractionDigits:0});
-  $("#meta").innerHTML = `${esc(D.account.name)} · ${ACTIVE().length} active ads (ad, ad set and campaign on) · data for the last ${D.rows.length ? daysBetween(D.since, D.until)+1 : 0} days · refreshed ${D.builtAt ? new Date(D.builtAt).toLocaleString() : "—"} (every ${D.refreshHours}h)`;
+  $("#meta").innerHTML = `${esc(D.account.name)} · ${ACTIVE().length} active ads (ad, ad set and campaign on) · data for the last ${D.rows.length ? daysBetween(D.since, D.until)+1 : 0} days · refreshed ${D.builtAt ? new Date(D.builtAt).toLocaleString() : "—"} (${D.refreshHours >= 24 && D.refreshHours % 24 === 0 ? (D.refreshHours === 24 ? "daily" : "every " + D.refreshHours/24 + " days") : "every " + D.refreshHours + "h"})`;
   banners(D);
   const camps = [...new Set(D.ads.filter(campaignActive).map(a => a.campaign).filter(Boolean))].sort();
   $("#campaign").innerHTML = `<option value="">All campaigns</option>` + camps.map(c => `<option>${esc(c)}</option>`).join("");

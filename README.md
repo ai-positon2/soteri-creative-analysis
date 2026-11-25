@@ -45,7 +45,7 @@ Purchases use the first action type present of `omni_purchase`, `offsite_convers
 | `META_AD_ACCOUNT_ID` | defaults to `261215873024315` |
 | `DASH_PASSWORD` | optional; the page asks for it |
 | `LOOKBACK_DAYS` | default 90 |
-| `REFRESH_HOURS` | default 3 |
+| `REFRESH_HOURS` | default 24 (once a day); the Refresh button reads Meta any time |
 | `PURCHASE_ACTION` | override the purchase action types, comma-separated |
 
 Attach a volume (any mount path) so the cache survives redeploys. Start command and health check are in

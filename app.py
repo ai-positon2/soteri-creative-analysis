@@ -9,7 +9,7 @@ Environment:
   META_AD_ACCOUNT_ID      default 261215873024315 (Soteri Skin)
   DASH_PASSWORD           when set, the page asks for it (any user name)
   LOOKBACK_DAYS           days of history kept, default 90
-  REFRESH_HOURS           how often Meta is re-read, default 3
+  REFRESH_HOURS           how often Meta is re-read, default 24 (once a day; the Refresh button reads it any time)
   PURCHASE_ACTION         purchase action types tried in order, default omni_purchase,offsite_conversion.fb_pixel_purchase,purchase
   DEMO=1                  made-up data, no Meta calls
 """
@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent
 PORT = int(os.environ.get("PORT", "8000"))
 PASSWORD = os.environ.get("DASH_PASSWORD", "")
 LOOKBACK = int(os.environ.get("LOOKBACK_DAYS", "90"))
-REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "3"))
+REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "24"))
 DEMO = os.environ.get("DEMO", "").strip().lower() in ("1", "true", "yes", "on")
 _vol = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
 CACHE = Path(os.environ.get("CACHE_FILE") or (Path(_vol) if _vol else ROOT / "cache") / "soteri_meta.json")
