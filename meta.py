@@ -210,7 +210,7 @@ def fetch_insights(api, act, since, until, log=print):
             "action_breakdowns": "action_type",
         })
         rows += [dict(parse_row(r), account=act) for r in got]
-        log("  %s insights %s → %s: %d rows" % (act, d, end, len(got)))
+        log("%s: results %s to %s read (%d rows)" % (act, d, end, len(got)))
         d = end + timedelta(days=1)
     return rows
 
@@ -236,7 +236,7 @@ def _extras(api, creative_id):
             return creative_id, None, None
 
 
-def fetch_ads(api, act, ad_ids):
+def fetch_ads(api, act, ad_ids, log=print):
     """Name, status, campaign, ad set and creative of each ad (read from the account's ads edge, filtered to these
     ids, a hundred at a time: Graph v26 dropped the ?ids= lookup), plus larger thumbnails."""
     ads, ids = {}, sorted(set(ad_ids))
@@ -257,6 +257,7 @@ def fetch_ads(api, act, ad_ids):
             ads[a["id"]] = info
     # thumbnail_url is 64px unless asked for bigger, and partnership settings; one read per creative, eight at a time
     need = sorted({a["creative_id"] for a in ads.values() if a["creative_id"]})
+    log("%s: %d ads read, now thumbnails and partnership settings of %d creatives" % (act, len(ads), len(need)))
     with ThreadPoolExecutor(8) as pool:
         got = list(pool.map(lambda c: _extras(api, c), need))
     big = {k: t for k, t, _ in got if t}
@@ -284,7 +285,7 @@ def pull_one(api, act, cache, first, today, refetch_days, log, single):
     rows = keep + [r for r in fetch_insights(api, act, since, today, log) if r["date"] >= since.isoformat()]
     warning = ""
     try:
-        ads = fetch_ads(api, act, [r["ad_id"] for r in rows])
+        ads = fetch_ads(api, act, [r["ad_id"] for r in rows], log)
     except RuntimeError as e:          # the results still show, named from the insights rows, without pictures or formats
         log("Creative details failed:", e)
         ads = {k: dict(v, account=act) for k, v in (cache or {}).get("ads", {}).items() if v.get("account", act if single else None) == act}

@@ -195,7 +195,10 @@ async function load() {
   const r = await fetch("/api/data?client=" + encodeURIComponent(CLIENT)); const d = await r.json();
   if (d.client) $("#eyebrow").textContent = `Meta · ${d.client}`;
   if (d.loading) {
-    $("#meta").textContent = "Reading Meta for the first time… this page reloads by itself.";
+    const mins = d.started ? Math.max(0, Math.round((Date.now() - new Date(d.started)) / 60000)) : null;
+    $("#meta").innerHTML = d.waiting ? `Waiting for the other client's read to finish, then ${esc(d.client || "this client")} is read from Meta. This page reloads by itself.`
+      : `Reading ${esc(d.client || "Meta")} from Meta for the first time${mins != null ? ` (started ${mins} min ago)` : ""}: 90 days of every ad, then each creative. This page reloads by itself.`
+        + (d.progress ? `<br><span style="color:var(--faint)">Now: ${esc(d.progress)}</span>` : "");
     banners(d); setTimeout(load, 8000); return;
   }
   D = d;

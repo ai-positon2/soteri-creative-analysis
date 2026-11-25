@@ -57,6 +57,8 @@ class State:
         self.data = self.payload = None
         self.error = ""
         self.refreshing = False
+        self.progress = ""                       # the last step of the read in progress, for the loading screen
+        self.started = None
         self.lock = threading.Lock()
         self.cache = CACHE_DIR / ("%s_meta.json" % slug)
 
@@ -101,11 +103,16 @@ def refresh(st):
     if st.refreshing:
         return
     st.refreshing = True
+    st.started, st.progress = datetime.now(timezone.utc).isoformat(timespec="seconds"), "Starting"
+
+    def note(*a):
+        log("[%s]" % st.slug, *a)
+        st.progress = " ".join(str(x) for x in a).strip()
     try:
         if DEMO:
             data = demo.make(LOOKBACK, accounts=len(st.client["accounts"]), client=st.client["name"], seed=7 + len(st.slug))
         else:
-            data = meta.pull(st.data, st.client["accounts"], LOOKBACK, log=lambda *a: log("[%s]" % st.slug, *a))
+            data = meta.pull(st.data, st.client["accounts"], LOOKBACK, log=note)
         data["builtAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         st.error = ""
         if not DEMO:
@@ -121,11 +128,13 @@ def refresh(st):
             publish(st, st.data)
     finally:
         st.refreshing = False
+        st.progress = ""
 
 
 def refresh_loop():
     while True:
-        for st in STATES.values():               # one client after the other, so Meta is never asked twice at once
+        # one client after the other, so Meta is never asked twice at once; a client with nothing to show yet goes first
+        for st in sorted(STATES.values(), key=lambda s: s.data is not None):
             refresh(st)
         time.sleep(max(0.25, REFRESH_HOURS) * 3600)
 
@@ -163,7 +172,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/data":
             st = STATES[client_of(path, query)]
             if st.payload is None:
-                body = json.dumps({"loading": True, "error": st.error, "client": st.client["name"]}).encode()
+                body = json.dumps({"loading": True, "error": st.error, "client": st.client["name"], "progress": st.progress, "started": st.started,
+                                   "waiting": not st.refreshing and not st.error}).encode()
                 return self._send(200, body, "application/json")
             if "gzip" in self.headers.get("Accept-Encoding", ""):
                 return self._send(200, st.payload, "application/json", gz=True)
