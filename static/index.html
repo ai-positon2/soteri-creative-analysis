@@ -162,7 +162,7 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
       <select id="partner"><option value="">Partnership + brand</option><option value="1">Partnership ads</option><option value="0">Brand ads</option></select></label>
     <label>Judge by <select id="group">
       <option value="ad">Each ad</option><option value="name">Ad name (same creative across ad sets)</option></select></label>
-    <span class="badge" title="Totals and the average ROAS count everything active campaigns spent in the range, ads paused since included, as Ads Manager does. Only ads running now (ad, ad set and campaign on) are judged.">Active campaigns · running ads judged</span>
+    <span class="badge" title="Totals and the average ROAS count everything the account spent in the range, paused campaigns and ads included, matching the account total in Ads Manager and Google Ads. Only ads running now (ad, ad set and campaign on) are judged.">All campaigns · running ads judged</span>
   </div>
   <div class="bar rules">
     <span><b>Scale</b> when ROAS ≥ <input type="number" id="scaleX" step="0.05" value="1.2">× average and ≥ <input type="number" id="minPurch" step="1" value="2"> <span id="purchWord">purchases</span></span>
@@ -244,7 +244,7 @@ async function load() {
   $("#meta").innerHTML = `${esc(acctNames)} · ${ACTIVE().length} active ${G ? "ads and asset groups" : "ads"} (${L.running}) · data for the last ${D.rows.length ? daysBetween(D.since, D.until)+1 : 0} days · refreshed ${D.builtAt ? new Date(D.builtAt).toLocaleString() : "—"} (${D.refreshHours >= 24 && D.refreshHours % 24 === 0 ? (D.refreshHours === 24 ? "daily" : "every " + D.refreshHours/24 + " days") : "every " + D.refreshHours + "h"})`;
   banners(D);
   fillCampaigns();
-  const kinds = [...new Set(D.ads.filter(campaignActive).map(kindOf))].sort((a, b) => KIND_ORDER(a) - KIND_ORDER(b) || a.localeCompare(b));
+  const kinds = [...new Set(D.ads.map(kindOf))].sort((a, b) => KIND_ORDER(a) - KIND_ORDER(b) || a.localeCompare(b));
   $("#kind").innerHTML = `<option value="">All formats</option>` + kinds.map(k => `<option value="${esc(k)}">${esc(KIND_LABEL[k] || k)}</option>`).join("");
   $("#until").value = lastDay(); $("#since").value = shift(lastDay(), -29);
   $("#since").min = $("#until").min = D.since; $("#since").max = $("#until").max = D.until;
@@ -258,8 +258,10 @@ async function load() {
 // the campaigns of the chosen account (all of them for "All accounts"), keeping the chosen one when it is still there
 function fillCampaigns() {
   const acct = $("#acct").value, cur = $("#campaign").value;
-  const camps = [...new Set(D.ads.filter(a => campaignActive(a) && (!acct || a.account === acct)).map(a => a.campaign).filter(Boolean))].sort();
-  $("#campaign").innerHTML = `<option value="">All campaigns</option>` + camps.map(c => `<option${c === cur ? " selected" : ""}>${esc(c)}</option>`).join("");
+  const list = D.ads.filter(a => a.campaign && (!acct || a.account === acct));
+  const on = new Set(list.filter(campaignActive).map(a => a.campaign));
+  const camps = [...new Set(list.map(a => a.campaign))].sort((a, b) => on.has(b) - on.has(a) || a.localeCompare(b));
+  $("#campaign").innerHTML = `<option value="">All campaigns</option>` + camps.map(c => `<option value="${esc(c)}"${c === cur ? " selected" : ""}>${esc(c)}${on.has(c) ? "" : " (paused)"}</option>`).join("");
 }
 // the Meta / Google switch, for a client that has both
 function platformTabs(d) {
@@ -322,8 +324,8 @@ function finish(t) {
 
 // per-ad totals for the chosen dates and filters, the account total, and the rules
 function compute() {
-  // Totals and the benchmark: everything active campaigns spent in the range, paused ads included (what Ads Manager shows
-  // for those campaigns). Creatives judged: only ads Meta calls ACTIVE (the ad, its ad set and its campaign all on).
+  // Totals and the benchmark: everything the account spent in the range, paused campaigns and ads included (the account
+  // total in Ads Manager and Google Ads). Creatives judged: only ads Meta calls ACTIVE (the ad, its ad set and its campaign all on).
   const [since, until] = range(), camp = $("#campaign").value, acct = $("#acct").value;
   // The Ads filter (format, partnership) narrows the totals and the creatives, but the benchmark stays the average of all
   // ads in the chosen campaigns, so a filtered creative is still judged against the account, not against its own kind.
@@ -334,7 +336,6 @@ function compute() {
     const ad = D.ads[r[1]];
     if (acct && ad.account !== acct) continue;
     if (camp && ad.campaign !== camp) continue;
-    if (!campaignActive(ad)) continue;
     add(all, r);
     if (keep && !keep(ad)) continue;
     add(total, r);
@@ -453,9 +454,9 @@ function render() {
   const vk = v => { const a = by(v), sp = sum(a, "spend"); return kv(v.toLowerCase(), VLABEL[v], cnt(a.length), `${big(sp)} · ${T.spend ? (sp/T.spend*100).toFixed(0) : 0}% of spend`); };
   const P = T.paused;
   const A = T.all, F = T.filtered, fl = F ? adFilterLabel() : "";
-  $("#kpis").innerHTML = kv("", F ? `Spend · ${esc(fl)}` : "Spend · active campaigns", big(T.spend),
-      `${C.since} → ${C.until}${F && A.spend ? ` · ${(T.spend/A.spend*100).toFixed(0)}% of all spend` : ""}${P.spend >= 1 ? `<br>incl. ${big(P.spend)} from ads paused since` : ""}`, money.format(T.spend))
-    + kv("", L.value, big(T.rev), `${cnt(T.purch)} ${L.purchases}${P.purch ? ` (${cnt(P.purch)} from paused ads)` : ""}`, money.format(T.rev))
+  $("#kpis").innerHTML = kv("", F ? `Spend · ${esc(fl)}` : "Spend · all campaigns", big(T.spend),
+      `${C.since} → ${C.until}${F && A.spend ? ` · ${(T.spend/A.spend*100).toFixed(0)}% of all spend` : ""}${P.spend >= 1 ? `<br>incl. ${big(P.spend)} from paused campaigns and ads` : ""}`, money.format(T.spend))
+    + kv("", L.value, big(T.rev), `${cnt(T.purch)} ${L.purchases}${P.purch ? ` (${cnt(P.purch)} from paused campaigns and ads)` : ""}`, money.format(T.rev))
     + (F ? kv("", `ROAS · ${esc(fl)}`, T.spend ? T.roas.toFixed(2) : "—", `CPA ${cost(T.cpa)}`) : "")
     + kv("avg", F ? "Average ROAS · all ads (benchmark)" : "Average ROAS (benchmark)", A.spend ? A.roas.toFixed(2) : "—", `CPA ${cost(A.cpa)}`)
     + VERDICTS.map(vk).join("");
