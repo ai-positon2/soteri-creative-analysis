@@ -1,8 +1,11 @@
-# Meta creative analysis (Soteri Skin, CABA Design)
+# Creative analysis: Meta and Google Ads (Soteri Skin, CABA Design)
 
 One service serves every client, each at its own link: Soteri Skin at `/` (and `/soteri`), CABA Design at `/caba`
 (three ad accounts, with an **Account** filter on the page). The clients and their ad account IDs are written in
 `app.py` (`CLIENTS`); a switch in the page header moves between them. Adding a client is one line there.
+
+A client with Google Ads also has a **Google** page (`/soteri/google`), reached from the Meta / Google switch next to
+the page title. It judges Google ads with the same rules; see *Google Ads* below.
 
 A dashboard that says which Meta creatives to **scale**, **keep running** or **cut**, judged against the
 account's average ROAS for the date range you pick, and shows which **hooks** and **ad formats** are working.
@@ -41,6 +44,20 @@ ad's creative. The last 7 days are re-read on every refresh since Meta keeps att
 Purchases use the first action type present of `omni_purchase`, `offsite_conversion.fb_pixel_purchase`,
 `purchase` (never summed). Data is cached in a JSON file on the Railway volume.
 
+## Google Ads
+
+`gads.py` reads the Google Ads API (read only, `googleAds:search`) through Position2's manager account with the same
+sign-in as the Intelligence Platform. A client's Google accounts are given in `CLIENTS` as `"google": {"ids": [...]}`,
+or found by name under the manager account (`"find": "Soteri"`).
+
+- Each ad (search, YouTube, Demand Gen, display, shopping) is one creative, and so is each **Performance Max asset
+  group**, since Performance Max has no ads of its own.
+- Purchases = Google's *Conversions*, purchase value = *Conv. value*, so ROAS matches the Google Ads interface.
+- Running = ad, ad group and campaign all enabled.
+- Videos: *view rate* (views ÷ impressions) and *watched to end* stand in for Meta's hook and hold rate.
+- Hooks: ads grouped by the headline that shows first (pinned to position 1, else the first written).
+- The whole lookback is re-read on every refresh (a handful of requests), since Google keeps adding late conversions.
+
 ## Railway
 
 | Variable | |
@@ -50,6 +67,8 @@ Purchases use the first action type present of `omni_purchase`, `offsite_convers
 | `LOOKBACK_DAYS` | default 90 |
 | `REFRESH_HOURS` | default 24 (once a day); the Refresh button reads Meta any time |
 | `PURCHASE_ACTION` | override the purchase action types, comma-separated |
+| `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_REFRESH_TOKEN` | the Google Ads sign-in (copy from the Intelligence Platform service); without them the Google page says it isn't connected |
+| `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | optional, the manager account, default 9923720096 |
 
 An ad account the token cannot read is left out and named in a banner; the client's other accounts still show.
 

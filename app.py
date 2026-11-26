@@ -1,4 +1,4 @@
-"""Meta creative analysis dashboards: Soteri Skin and CABA Design, served by one web server.
+"""Creative analysis dashboards (Meta, and Google Ads where a client has it): Soteri Skin and CABA Design, one web server.
 
 A small web server (standard library only) that reads each client's Meta ad accounts every REFRESH_HOURS, keeps the
 daily ad-level rows on disk (the Railway volume when there is one), and serves one page per client that works out,
@@ -6,10 +6,13 @@ for any date range, which creatives to scale, keep or cut against the account's 
 formats work.
 
 The clients and their ad accounts are written below (CLIENTS). Each has its own link: Soteri at / (and /soteri),
-CABA Design at /caba. A client with several ad accounts gets an Account filter on its page.
+CABA Design at /caba, and a client with Google Ads has a Google page next to its Meta one (/soteri/google). A client with
+several ad accounts gets an Account filter on its page.
 
 Environment:
   META_ADS_ACCESS_TOKEN   System User token with ads_read on every client's ad accounts (required unless DEMO=1)
+  GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_REFRESH_TOKEN
+                          the Google Ads sign-in (the Intelligence Platform's); without them the Google pages say so
   DASH_PASSWORD           when set, the pages ask for it (any user name)
   LOOKBACK_DAYS           days of history kept, default 90
   REFRESH_HOURS           how often Meta is re-read, default 24 (once a day; the Refresh button reads it any time)
@@ -29,15 +32,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import demo
+import gads
 import meta
 
 # The clients: link slug -> name on the page and Meta ad account IDs (in the order the Account filter lists them).
+# "google": the client's Google Ads customer IDs, or a name to find its account by under the manager account.
 # The first one is also what the bare link (/) shows. To add a client, add a line here.
 CLIENTS = {
-    "soteri": {"name": "Soteri Skin", "accounts": ["261215873024315"]},
+    "soteri": {"name": "Soteri Skin", "accounts": ["261215873024315"], "google": {"ids": [], "find": "Soteri"}},
     "caba": {"name": "CABA Design", "accounts": ["6928133667255774", "1135846647331525", "990238779748852"]},   # CABA Design, Design 2, Design 3
 }
 DEFAULT = next(iter(CLIENTS))
+PLATFORMS = {"meta": "Meta", "google": "Google"}
+
+
+def platforms_of(slug):
+    return ["meta"] + (["google"] if CLIENTS[slug].get("google") else [])
 
 ROOT = Path(__file__).resolve().parent
 PORT = int(os.environ.get("PORT", "8000"))
@@ -50,20 +60,20 @@ CACHE_DIR = Path(_vol) if _vol else ROOT / "cache"
 
 
 class State:
-    """One client's last good pull, its page payload, its last error and whether it is being read now."""
+    """One client's last good pull on one platform, its page payload, its last error and whether it is being read now."""
 
-    def __init__(self, slug):
-        self.slug, self.client = slug, CLIENTS[slug]
+    def __init__(self, slug, platform="meta"):
+        self.slug, self.client, self.platform = slug, CLIENTS[slug], platform
         self.data = self.payload = None
         self.error = ""
         self.refreshing = False
         self.progress = ""                       # the last step of the read in progress, for the loading screen
         self.started = None
         self.lock = threading.Lock()
-        self.cache = CACHE_DIR / ("%s_meta.json" % slug)
+        self.cache = CACHE_DIR / ("%s_%s.json" % (slug, platform))
 
 
-STATES = {slug: State(slug) for slug in CLIENTS}
+STATES = {(slug, p): State(slug, p) for slug in CLIENTS for p in platforms_of(slug)}
 
 
 def log(*a):
@@ -89,7 +99,8 @@ def compact(st, data):
     out = {k: v for k, v in data.items() if k not in ("rows", "ads")}
     out.setdefault("accounts", [data["account"]] if data.get("account") else [])
     out.update({"ads": [dict(ads[k], id=k) for k in ids], "rows": rows, "builtAt": data.get("builtAt"), "error": st.error, "refreshHours": REFRESH_HOURS,
-                "client": st.client["name"], "slug": st.slug, "clients": [{"slug": k, "name": v["name"]} for k, v in CLIENTS.items()]})
+                "client": st.client["name"], "slug": st.slug, "platform": st.platform, "platforms": platforms_of(st.slug),
+                "clients": [{"slug": k, "name": v["name"], "platforms": platforms_of(k)} for k, v in CLIENTS.items()]})
     return out
 
 
@@ -106,11 +117,15 @@ def refresh(st):
     st.started, st.progress = datetime.now(timezone.utc).isoformat(timespec="seconds"), "Starting"
 
     def note(*a):
-        log("[%s]" % st.slug, *a)
+        log("[%s %s]" % (st.slug, st.platform), *a)
         st.progress = " ".join(str(x) for x in a).strip()
     try:
         if DEMO:
-            data = demo.make(LOOKBACK, accounts=len(st.client["accounts"]), client=st.client["name"], seed=7 + len(st.slug))
+            data = demo.make(LOOKBACK, accounts=1 if st.platform == "google" else len(st.client["accounts"]), client=st.client["name"],
+                             seed=7 + len(st.slug) + (5 if st.platform == "google" else 0), platform=st.platform)
+        elif st.platform == "google":
+            g = st.client["google"]
+            data = gads.pull(st.data, g.get("ids") or [], g.get("find", ""), LOOKBACK, log=note)
         else:
             data = meta.pull(st.data, st.client["accounts"], LOOKBACK, log=note)
         data["builtAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -134,13 +149,16 @@ def refresh(st):
 def refresh_loop():
     while True:
         # one client after the other, so Meta is never asked twice at once; a client with nothing to show yet goes first
-        for st in sorted(STATES.values(), key=lambda s: s.data is not None):
+        for st in sorted(STATES.values(), key=lambda s: (s.data is not None, s.platform != "meta")):
+            if st.platform == "google" and not DEMO and gads.configured():
+                st.error = gads.configured()
+                continue
             refresh(st)
         time.sleep(max(0.25, REFRESH_HOURS) * 3600)
 
 
 def load_cache():
-    for st in STATES.values():                   # soteri_meta.json is the name Soteri's cache already had, so it carries over
+    for st in STATES.values():                   # <client>_meta.json is the name the Meta caches already had, so they carry over
         if DEMO or not st.cache.exists():
             continue
         try:
@@ -150,14 +168,20 @@ def load_cache():
             log("Cache unreadable, starting fresh:", st.cache, e)
 
 
-def client_of(path, query=""):
-    """The client a request is for: ?client=caba, or the link /caba, else the first client."""
-    for part in query.split("&"):
-        k, _, v = part.partition("=")
-        if k == "client" and v in CLIENTS:
-            return v
-    slug = path.strip("/").split("/")[0].lower()
-    return slug if slug in CLIENTS else DEFAULT
+def state_of(path, query=""):
+    """The client and platform a request is for: ?client=caba&platform=google, or the link /soteri/google, else the first
+    client's Meta page. A platform the client doesn't have falls back to Meta."""
+    q = dict(part.partition("=")[::2] for part in query.split("&") if part)
+    parts = [p.lower() for p in path.strip("/").split("/") if p]
+    slug = q.get("client") or next((p for p in parts if p in CLIENTS), DEFAULT)
+    slug = slug if slug in CLIENTS else DEFAULT
+    plat = q.get("platform") or next((p for p in parts if p in PLATFORMS), "meta")
+    return STATES.get((slug, plat)) or STATES[(slug, "meta")]
+
+
+def is_page(path):
+    parts = [p.lower() for p in path.strip("/").split("/") if p]
+    return path in ("/", "/index.html") or (0 < len(parts) <= 2 and all(p in CLIENTS or p in PLATFORMS for p in parts))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -167,12 +191,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, b"ok", "text/plain")
         if not self._authorized():
             return self._ask_password()
-        if path in ("/", "/index.html") or path.strip("/").lower() in CLIENTS:
+        if is_page(path):
             return self._send(200, (ROOT / "static" / "index.html").read_bytes(), "text/html; charset=utf-8")
         if path == "/api/data":
-            st = STATES[client_of(path, query)]
+            st = state_of(path, query)
             if st.payload is None:
-                body = json.dumps({"loading": True, "error": st.error, "client": st.client["name"], "progress": st.progress, "started": st.started,
+                body = json.dumps({"loading": True, "error": st.error, "client": st.client["name"], "platform": st.platform,
+                                   "platforms": platforms_of(st.slug), "slug": st.slug, "progress": st.progress, "started": st.started,
                                    "waiting": not st.refreshing and not st.error}).encode()
                 return self._send(200, body, "application/json")
             if "gzip" in self.headers.get("Accept-Encoding", ""):
@@ -185,7 +210,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._ask_password()
         path, _, query = self.path.partition("?")
         if path == "/api/refresh":
-            st = STATES[client_of(path, query)]
+            st = state_of(path, query)
+            if st.platform == "google" and not DEMO and gads.configured():
+                return self._send(202, json.dumps({"started": False, "error": gads.configured()}).encode(), "application/json")
             started = not st.refreshing
             if started:
                 threading.Thread(target=refresh, args=(st,), daemon=True).start()
@@ -228,7 +255,12 @@ if __name__ == "__main__":
     if not DEMO and not meta.token():
         log("META_ADS_ACCESS_TOKEN is not set: the page will say so. Set DEMO=1 to try it with made-up data.")
         for st in STATES.values():
-            st.error = "META_ADS_ACCESS_TOKEN is not set on the server."
+            if st.platform == "meta":
+                st.error = "META_ADS_ACCESS_TOKEN is not set on the server."
+    if not DEMO and gads.configured():
+        for st in STATES.values():
+            if st.platform == "google":
+                st.error = gads.configured()
     load_cache()
     if DEMO or meta.token():
         threading.Thread(target=refresh_loop, daemon=True).start()

@@ -127,6 +127,10 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
 .empty { color:var(--muted); padding:24px; text-align:center; }
 .legend { display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:6px; }
 .legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:0; }
+.ptabs { display:inline-flex; gap:3px; margin-left:10px; padding:3px; background:var(--panel); border:1px solid var(--line); border-radius:80px; vertical-align:middle; }
+.ptabs a { padding:4px 14px; border-radius:80px; font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); text-decoration:none; }
+.ptabs a:hover { color:var(--ink); }
+.ptabs a.on { color:#fff; background:linear-gradient(110deg,var(--accent),var(--accent2)); }
 @media (max-width:900px) { .wrap { padding:0 16px; } header { padding-top:20px; } }
 </style>
 </head>
@@ -134,7 +138,7 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
 <div class="wrap">
 <header>
   <div>
-    <span class="eyebrow"><span class="d"></span><span id="eyebrow">Meta</span></span>
+    <span class="eyebrow"><span class="d"></span><span id="eyebrow">Meta</span></span><span class="ptabs" id="ptabs" style="display:none"></span>
     <h1>Creative <span class="grad">analysis</span></h1>
     <div class="meta" id="meta">Loading…</div>
   </div>
@@ -161,7 +165,7 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
     <span class="badge" title="Totals and the average ROAS count everything active campaigns spent in the range, ads paused since included, as Ads Manager does. Only ads running now (ad, ad set and campaign on) are judged.">Active campaigns · running ads judged</span>
   </div>
   <div class="bar rules">
-    <span><b>Scale</b> when ROAS ≥ <input type="number" id="scaleX" step="0.05" value="1.2">× average and ≥ <input type="number" id="minPurch" step="1" value="2"> purchases</span>
+    <span><b>Scale</b> when ROAS ≥ <input type="number" id="scaleX" step="0.05" value="1.2">× average and ≥ <input type="number" id="minPurch" step="1" value="2"> <span id="purchWord">purchases</span></span>
     <span><b>Keep</b> when ROAS ≥ <input type="number" id="keepX" step="0.05" value="0.8">× average</span>
     <span><b>Cut</b> below that</span>
     <span><b>Too early</b> until spend ≥ <input type="number" id="minSpend" step="5"> <span id="minSpendNote"></span></span>
@@ -180,8 +184,21 @@ svg text { fill:var(--faint); font-size:11px; font-family:'Space Grotesk',sans-s
 <div class="tip" id="tip"></div>
 <script>
 const $ = s => document.querySelector(s);
-// which client this page is for: /caba is CABA Design, / and /soteri are Soteri Skin (the server knows the list)
-const CLIENT = location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0].toLowerCase() || "soteri";
+// which client and platform this page is for: /caba is CABA Design, / and /soteri are Soteri Skin, /soteri/google its Google Ads
+const PARTS = location.pathname.toLowerCase().split("/").filter(Boolean);
+const PLATFORM = PARTS.includes("google") ? "google" : "meta";
+const CLIENT = PARTS.find(p => p !== "google" && p !== "meta" && p !== "index.html") || "soteri";
+const G = PLATFORM === "google", PNAME = G ? "Google" : "Meta";
+const Q = `client=${encodeURIComponent(CLIENT)}&platform=${PLATFORM}`;
+// the words that differ between the platforms
+const L = G ? {purch:"Conv.", purchases:"conversions", Purchases:"Conversions", value:"Conv. value", hook:"View rate", hookT:"Video views ÷ impressions",
+               v3:"Video views", v3T:"YouTube video views", hold:"Watched to end", holdT:"Share of views watched to the end", cp3:"Cost / view",
+               ctrT:"Clicks ÷ impressions", adset:"ad group", adsets:"ad groups", tool:"Google Ads", running:"ad, ad group and campaign on",
+               opening:"First headline", search:"Search name, campaign, headline…"}
+            : {purch:"Purch.", purchases:"purchases", Purchases:"Purchases", value:"Purchase value", hook:"Hook rate", hookT:"3-second video plays ÷ impressions (videos only)",
+               v3:"3-sec views", v3T:"Video plays of at least 3 seconds", hold:"Hold rate", holdT:"ThruPlays ÷ 3-second plays: how many keep watching", cp3:"Cost / 3-sec view",
+               ctrT:"Link clicks ÷ impressions", adset:"ad set", adsets:"ad sets", tool:"Ads Manager", running:"ad, ad set and campaign on",
+               opening:"Opening line", search:"Search name, campaign, hook…"};
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let D = null, money, money0, moneyK;
 const S = { tab:"creatives", verdict:"all", q:"", sort:{creatives:["spend",-1], hooks:["hook",-1], copy:["spend",-1], formats:["spend",-1], seg:["spend",-1]},
@@ -192,12 +209,18 @@ const VCOLOR = v => getComputedStyle(document.documentElement).getPropertyValue(
 
 // ── data ──────────────────────────────────────────────────────────────────
 async function load() {
-  const r = await fetch("/api/data?client=" + encodeURIComponent(CLIENT)); const d = await r.json();
-  if (d.client) $("#eyebrow").textContent = `Meta · ${d.client}`;
+  const r = await fetch("/api/data?" + Q); const d = await r.json();
+  if (d.platform && d.platform !== PLATFORM) { location.replace("/" + (d.slug || CLIENT)); return; }   // a client without Google: its Meta page
+  if (d.client) $("#eyebrow").textContent = `${PNAME} · ${d.client}`;
+  platformTabs(d);
+  if (d.loading && d.error && !d.started) {                 // never read (Google not connected yet): say so, don't pretend to load
+    $("#meta").textContent = `Nothing has been read from ${PNAME} yet for ${d.client || "this client"}.`;
+    banners(d); return;
+  }
   if (d.loading) {
     const mins = d.started ? Math.max(0, Math.round((Date.now() - new Date(d.started)) / 60000)) : null;
-    $("#meta").innerHTML = d.waiting ? `Waiting for the other client's read to finish, then ${esc(d.client || "this client")} is read from Meta. This page reloads by itself.`
-      : `Reading ${esc(d.client || "this client")}'s ads from Meta${mins != null ? ` (started ${mins} min ago)` : ""}: the last 90 days of results, then each ad's creative. This page reloads by itself.`
+    $("#meta").innerHTML = d.waiting ? `Waiting for another read to finish, then ${esc(d.client || "this client")} is read from ${PNAME}. This page reloads by itself.`
+      : `Reading ${esc(d.client || "this client")}'s ads from ${PNAME}${mins != null ? ` (started ${mins} min ago)` : ""}: the last 90 days of results, then what each ad shows. This page reloads by itself.`
         + (d.progress ? `<br><span style="color:var(--faint)">Now: ${esc(d.progress)}</span>` : "");
     banners(d); setTimeout(load, 8000); return;
   }
@@ -208,7 +231,9 @@ async function load() {
   moneyK = new Intl.NumberFormat(undefined, {style:"currency", currency:cur, notation:"compact", maximumSignificantDigits:3});
   D.accounts = D.accounts && D.accounts.length ? D.accounts : [D.account];
   document.title = `${D.client || D.account.name} · Creative Analysis`;
-  $("#eyebrow").textContent = `Meta · ${D.client || D.account.name}`;
+  $("#eyebrow").textContent = `${PNAME} · ${D.client || D.account.name}`;
+  document.title = `${D.client || D.account.name} · ${PNAME} Creative Analysis`;
+  $("#partner").style.display = G ? "none" : "";
   if (D.clients && D.clients.length > 1) {
     $("#clientSel").innerHTML = D.clients.map(c => `<option value="${esc(c.slug)}"${c.slug === D.slug ? " selected" : ""}>${esc(c.name)}</option>`).join("");
     $("#clientSel").style.display = "";
@@ -216,7 +241,7 @@ async function load() {
   const acctNames = D.accounts.length > 1 ? `${D.accounts.length} ad accounts (${D.accounts.map(a => a.name).join(", ")})` : D.account.name;
   $("#acctWrap").style.display = D.accounts.length > 1 ? "" : "none";
   $("#acct").innerHTML = `<option value="">All ${D.accounts.length} accounts</option>` + D.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join("");
-  $("#meta").innerHTML = `${esc(acctNames)} · ${ACTIVE().length} active ads (ad, ad set and campaign on) · data for the last ${D.rows.length ? daysBetween(D.since, D.until)+1 : 0} days · refreshed ${D.builtAt ? new Date(D.builtAt).toLocaleString() : "—"} (${D.refreshHours >= 24 && D.refreshHours % 24 === 0 ? (D.refreshHours === 24 ? "daily" : "every " + D.refreshHours/24 + " days") : "every " + D.refreshHours + "h"})`;
+  $("#meta").innerHTML = `${esc(acctNames)} · ${ACTIVE().length} active ${G ? "ads and asset groups" : "ads"} (${L.running}) · data for the last ${D.rows.length ? daysBetween(D.since, D.until)+1 : 0} days · refreshed ${D.builtAt ? new Date(D.builtAt).toLocaleString() : "—"} (${D.refreshHours >= 24 && D.refreshHours % 24 === 0 ? (D.refreshHours === 24 ? "daily" : "every " + D.refreshHours/24 + " days") : "every " + D.refreshHours + "h"})`;
   banners(D);
   fillCampaigns();
   const kinds = [...new Set(D.ads.filter(campaignActive).map(kindOf))].sort((a, b) => KIND_ORDER(a) - KIND_ORDER(b) || a.localeCompare(b));
@@ -236,11 +261,17 @@ function fillCampaigns() {
   const camps = [...new Set(D.ads.filter(a => campaignActive(a) && (!acct || a.account === acct)).map(a => a.campaign).filter(Boolean))].sort();
   $("#campaign").innerHTML = `<option value="">All campaigns</option>` + camps.map(c => `<option${c === cur ? " selected" : ""}>${esc(c)}</option>`).join("");
 }
+// the Meta / Google switch, for a client that has both
+function platformTabs(d) {
+  const ps = d.platforms || ["meta"], slug = d.slug || CLIENT;
+  $("#ptabs").style.display = ps.length > 1 ? "" : "none";
+  $("#ptabs").innerHTML = ps.map(p => `<a href="/${esc(slug)}${p === "meta" ? "" : "/" + p}" class="${p === PLATFORM ? "on" : ""}">${p === "google" ? "Google" : "Meta"}</a>`).join("");
+}
 function banners(d) {
   let h = "";
-  if (d.demo) h += `<div class="banner demo">Demo data: these numbers are made up. Set META_ADS_ACCESS_TOKEN on the server (and remove DEMO) to see ${esc(d.client || "the client")}'s real ads.</div>`;
+  if (d.demo) h += `<div class="banner demo">Demo data: these numbers are made up. Set ${G ? "the GOOGLE_ADS_* sign-in" : "META_ADS_ACCESS_TOKEN"} on the server (and remove DEMO) to see ${esc(d.client || "the client")}'s real ads.</div>`;
   if (d.warning) h += `<div class="banner demo">${esc(d.warning)}</div>`;
-  if (d.error) h += `<div class="banner err">The last refresh from Meta failed: ${esc(d.error)}${d.rows ? " Showing the last good data." : ""}</div>`;
+  if (d.error) h += `<div class="banner err">${d.started || d.rows ? `The last refresh from ${PNAME} failed: ` : ""}${esc(d.error)}${d.rows ? " Showing the last good data." : ""}</div>`;
   $("#banners").innerHTML = h;
 }
 // a campaign is on when Meta says so; data read before campaign statuses were stored falls back to "has a running ad"
@@ -250,16 +281,16 @@ function campaignActive(a) {
   return D._liveCamps.has(a.campaign);
 }
 // broad format for the Ads filter: single and flexible images together, single and flexible videos together
-const kindOf = a => /video/i.test(a.format || "") ? "Video" : /image/i.test(a.format || "") ? "Image" : (a.format || "Other");
-const KIND_LABEL = {Image:"Image ads (single + flexible)", Video:"Video ads (single + flexible)"};
-const KIND_ORDER = k => ({Image:0, Video:1}[k] ?? 2);
+const kindOf = a => G ? (a.format || "Other") : /video/i.test(a.format || "") ? "Video" : /image/i.test(a.format || "") ? "Image" : (a.format || "Other");
+const KIND_LABEL = G ? {} : {Image:"Image ads (single + flexible)", Video:"Video ads (single + flexible)"};
+const KIND_ORDER = k => G ? 0 : ({Image:0, Video:1}[k] ?? 2);
 function adFilter() {
-  const k = $("#kind").value, p = $("#partner").value;
+  const k = $("#kind").value, p = G ? "" : $("#partner").value;
   if (!k && !p) return null;
   return a => (!k || kindOf(a) === k) && (!p || (p === "1" ? a.partnership === true : a.partnership === false));
 }
 function adFilterLabel() {
-  const k = $("#kind").value, p = $("#partner").value;
+  const k = $("#kind").value, p = G ? "" : $("#partner").value;
   return [p === "1" ? "partnership" : p === "0" ? "brand" : "", k ? k.toLowerCase() : ""].filter(Boolean).join(" ") + " ads";
 }
 const daysBetween =(a,b) => Math.round((new Date(b) - new Date(a)) / 864e5);
@@ -317,8 +348,8 @@ function judge(t, R) {
   t.ratio = ratio;
   if (t.spend < R.minSpend) { t.verdict = "Early"; t.why = `${money0.format(t.spend)} spent, needs ${money0.format(R.minSpend)} before judging`; }
   else if (ratio >= R.scaleX && t.purch >= R.minPurch) { t.verdict = "Scale"; t.why = `ROAS ${t.roas.toFixed(2)} is ${ratio.toFixed(2)}× the average`; }
-  else if (ratio >= R.keepX) { t.verdict = "Keep"; t.why = ratio >= R.scaleX ? `ROAS high but only ${cnt(t.purch)} purchase${t.purch==1?"":"s"}` : `ROAS ${t.roas.toFixed(2)} is near the average`; }
-  else { t.verdict = "Cut"; t.why = t.purch ? `ROAS ${t.roas.toFixed(2)} is ${(100 - ratio*100).toFixed(0)}% below the average` : `${money0.format(t.spend)} spent, no purchases`; }
+  else if (ratio >= R.keepX) { t.verdict = "Keep"; t.why = ratio >= R.scaleX ? `ROAS high but only ${cnt(t.purch)} ${t.purch==1 ? L.purchases.replace(/s$/, "") : L.purchases}` : `ROAS ${t.roas.toFixed(2)} is near the average`; }
+  else { t.verdict = "Cut"; t.why = t.purch ? `ROAS ${t.roas.toFixed(2)} is ${(100 - ratio*100).toFixed(0)}% below the average` : `${money0.format(t.spend)} spent, no ${L.purchases}`; }
   return t;
 }
 
@@ -358,6 +389,11 @@ const thumb = a => a.thumb ? `<img class="thumb" loading="lazy" src="${esc(a.thu
 const amLink = a => { const act = (a.account || D.account.id || "").replace(/\D/g, ""); return act ? `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act}&selected_ad_ids=${a.id}` : ""; };
 function links(a) {
   const out = [];
+  if (G) {
+    if (a.post_url) out.push(`<a href="${esc(a.post_url)}" target="_blank" rel="noopener">Video</a>`);
+    if (a.landing) out.push(`<a href="${esc(a.landing)}" target="_blank" rel="noopener">Landing page</a>`);
+    return out.join(" · ");
+  }
   if (!D.demo && amLink(a)) out.push(`<a href="${amLink(a)}" target="_blank" rel="noopener">Ads Manager</a>`);
   if (a.post_url) out.push(`<a href="${esc(a.post_url)}" target="_blank" rel="noopener">Post</a>`);
   return out.join(" · ");
@@ -410,7 +446,7 @@ function render() {
   const A = T.all, F = T.filtered, fl = F ? adFilterLabel() : "";
   $("#kpis").innerHTML = kv("", F ? `Spend · ${esc(fl)}` : "Spend · active campaigns", big(T.spend),
       `${C.since} → ${C.until}${F && A.spend ? ` · ${(T.spend/A.spend*100).toFixed(0)}% of all spend` : ""}${P.spend >= 1 ? `<br>incl. ${big(P.spend)} from ads paused since` : ""}`, money.format(T.spend))
-    + kv("", "Purchase value", big(T.rev), `${cnt(T.purch)} purchases${P.purch ? ` (${cnt(P.purch)} from paused ads)` : ""}`, money.format(T.rev))
+    + kv("", L.value, big(T.rev), `${cnt(T.purch)} ${L.purchases}${P.purch ? ` (${cnt(P.purch)} from paused ads)` : ""}`, money.format(T.rev))
     + (F ? kv("", `ROAS · ${esc(fl)}`, T.spend ? T.roas.toFixed(2) : "—", `CPA ${cost(T.cpa)}`) : "")
     + kv("avg", F ? "Average ROAS · all ads (benchmark)" : "Average ROAS (benchmark)", A.spend ? A.roas.toFixed(2) : "—", `CPA ${cost(A.cpa)}`)
     + VERDICTS.map(vk).join("");
@@ -423,25 +459,25 @@ function renderCreatives(C, list) {
   let rows = list.filter(t => S.verdict === "all" || t.verdict === S.verdict);
   if (S.q) { const q = S.q.toLowerCase(); rows = rows.filter(t => (t.ad.name + " " + t.ad.campaign + " " + t.ad.adset + " " + t.ad.hook).toLowerCase().includes(q)); }
   const pts = list.filter(t => t.spend > 0).map(t => ({x:t.spend, y:t.roas, c:VCOLOR(t.verdict), r: 4 + Math.min(6, Math.sqrt(t.purch)),
-    tip:`${t.ad.name} — ${VLABEL[t.verdict]}\nSpend ${money0.format(t.spend)} · ROAS ${t.roas.toFixed(2)} · ${cnt(t.purch)} purchases`}));
+    tip:`${t.ad.name} — ${VLABEL[t.verdict]}\nSpend ${money0.format(t.spend)} · ROAS ${t.roas.toFixed(2)} · ${cnt(t.purch)} ${L.purchases}`}));
   const multi = $("#group").value === "name";
   const cols = [
     {k:"thumb", h:"", f:t => thumb(t.ad), v:t => 0},
     {k:"name", h:"Creative", v:t => t.ad.name.toLowerCase(), f:t => `<div class="name">${esc(t.ad.name)}<span class="st ${t.ad.status}">${esc((t.ad.status||"").replace(/_/g," ").toLowerCase())}</span></div>
-      <div class="small">${esc(t.ad.format)}${t.ad.partnership ? ` · <span style="color:var(--avg)">Partnership${t.ad.partnership_ids ? " (" + esc(t.ad.partnership_ids) + ")" : ""}</span>` : ""}${t.ad.cta ? " · " + esc(t.ad.cta) : ""} · ${D.accounts.length > 1 && !$("#acct").value ? esc((D.accounts.find(x => x.id === t.ad.account) || {}).name || "") + " · " : ""}${esc(t.ad.campaign)}${multi && t.ads.length > 1 ? ` · in ${t.ads.length} ad sets` : ` · ${esc(t.ad.adset)}`}</div><div class="small">${links(t.ad)}</div>`},
+      <div class="small">${esc(t.ad.format)}${t.ad.partnership ? ` · <span style="color:var(--avg)">Partnership${t.ad.partnership_ids ? " (" + esc(t.ad.partnership_ids) + ")" : ""}</span>` : ""}${t.ad.cta ? " · " + esc(t.ad.cta) : ""} · ${D.accounts.length > 1 && !$("#acct").value ? esc((D.accounts.find(x => x.id === t.ad.account) || {}).name || "") + " · " : ""}${esc(t.ad.campaign)}${multi && t.ads.length > 1 ? ` · in ${t.ads.length} ${L.adsets}` : ` · ${esc(t.ad.adset)}`}</div>${G && t.ad.hook ? `<div class="small hook">“${esc(t.ad.hook)}”</div>` : ""}<div class="small">${links(t.ad)}</div>`},
     {k:"verdict", h:"Verdict", v:t => VERDICTS.indexOf(t.verdict), f:t => `${pill(t.verdict)}<div class="small" style="max-width:220px">${esc(t.why)}</div>`},
     {k:"spend", h:"Spend", num:1, f:t => money0.format(t.spend)},
-    {k:"rev", h:"Purchase value", num:1, f:t => money0.format(t.rev)},
+    {k:"rev", h:L.value, num:1, f:t => money0.format(t.rev)},
     {k:"roas", h:"ROAS", num:1, f:t => t.roas.toFixed(2)},
     {k:"ratio", h:"vs avg", num:1, f:t => vsAvg(t, R.avg)},
-    {k:"purch", h:"Purch.", num:1, f:t => cnt(t.purch)},
+    {k:"purch", h:L.purch, num:1, f:t => cnt(t.purch)},
     {k:"cpa", h:"CPA", num:1, f:t => cost(t.cpa)},
-    {k:"ctr", h:"CTR", num:1, title:"Link clicks ÷ impressions", f:t => pct(t.ctr, 2)},
-    {k:"hook", h:"Hook rate", num:1, title:"3-second video plays ÷ impressions (videos only)", f:t => pct(t.hook)},
-    {k:"v3", h:"3-sec views", num:1, title:"Video plays of at least 3 seconds", f:t => num(t.v3)},
+    {k:"ctr", h:"CTR", num:1, title:L.ctrT, f:t => pct(t.ctr, 2)},
+    {k:"hook", h:L.hook, num:1, title:L.hookT, f:t => pct(t.hook)},
+    {k:"v3", h:L.v3, num:1, title:L.v3T, f:t => num(t.v3)},
   ];
   $("#tab-creatives").innerHTML = `
-    <div class="card"><h2>Spend vs ROAS</h2><p class="sub">Every creative with spend in the range. Above the green line: scale. Below the red line: cut. Bigger dots have more purchases.</p>
+    <div class="card"><h2>Spend vs ROAS</h2><p class="sub">Every ${G ? "ad and Performance Max asset group" : "creative"} with spend in the range. Above the green line: scale. Below the red line: cut. Bigger dots have more ${L.purchases}.</p>
       ${scatter(pts, {xlog:true, label:"Spend vs ROAS", xlabel:"Spend (log scale)", xfmt:v => money0.format(v), yfmt:v => v.toFixed(1),
         lines:[{y:R.avg*R.scaleX, c:"var(--scale)", t:`Scale ≥ ${(R.avg*R.scaleX).toFixed(2)}`}, {y:R.avg, c:"var(--avg)", t:`Average ${R.avg.toFixed(2)}`, dash:"", w:1.5},
                {y:R.avg*R.keepX, c:"var(--cut)", t:`Cut < ${(R.avg*R.keepX).toFixed(2)}`}], vline:R.minSpend})}
@@ -450,7 +486,7 @@ function renderCreatives(C, list) {
       <div class="chips">
         <button class="chip ${S.verdict==="all"?"on":""}" data-v="all">All ${list.length}</button>
         ${VERDICTS.map(v => `<button class="chip ${S.verdict===v?"on":""}" data-v="${v}">${VLABEL[v]} ${counts[v]}</button>`).join("")}
-        <input type="search" id="q" placeholder="Search name, campaign, hook…" value="${esc(S.q)}" style="margin-left:auto;min-width:220px">
+        <input type="search" id="q" placeholder="${L.search}" value="${esc(S.q)}" style="margin-left:auto;min-width:220px">
       </div>
       ${table("t-cre", cols, rows, "creatives")}
     </div>`;
@@ -467,14 +503,14 @@ function renderHooks(C, list) {
                   "Weak hook, converts":"Sells once watched: test new first 3 seconds",
                   "Weak hook, doesn't convert":"Neither works: cut"};
   const pts = vids.map(t => ({x:t.hook, y:t.roas, c:VCOLOR(t.verdict), r:4 + Math.min(6, Math.sqrt(t.purch)),
-    tip:`${t.ad.name}\nHook rate ${pct(t.hook)} · Hold ${pct(t.hold)} · ROAS ${t.roas.toFixed(2)}\n${quad(t)}`}));
+    tip:`${t.ad.name}\n${L.hook} ${pct(t.hook)} · ${L.hold} ${pct(t.hold)} · ROAS ${t.roas.toFixed(2)}\n${quad(t)}`}));
   const vcols = [
     {k:"thumb", h:"", f:t => thumb(t.ad), v:() => 0},
     {k:"name", h:"Video", v:t => t.ad.name.toLowerCase(), f:t => `<div class="name">${esc(t.ad.name)}</div><div class="small hook">${esc(t.ad.hook ? "“" + t.ad.hook + "”" : "")}</div>`},
-    {k:"hook", h:"Hook rate", num:1, title:"3-second plays ÷ impressions: how many stop scrolling", f:t => `<span class="${t.hook>=avgHook?"up":"down"}">${pct(t.hook)}</span>`},
-    {k:"hold", h:"Hold rate", num:1, title:"ThruPlays ÷ 3-second plays: how many keep watching", f:t => `<span class="${t.hold>=avgHold?"up":"down"}">${pct(t.hold)}</span>`},
-    {k:"v3", h:"3-sec views", num:1, f:t => num(t.v3)},
-    {k:"cp3", h:"Cost / 3-sec view", num:1, f:t => t.cp3 ? money.format(t.cp3) : "—"},
+    {k:"hook", h:L.hook, num:1, title:L.hookT, f:t => `<span class="${t.hook>=avgHook?"up":"down"}">${pct(t.hook)}</span>`},
+    {k:"hold", h:L.hold, num:1, title:L.holdT, f:t => `<span class="${t.hold>=avgHold?"up":"down"}">${pct(t.hold)}</span>`},
+    {k:"v3", h:L.v3, num:1, f:t => num(t.v3)},
+    {k:"cp3", h:L.cp3, num:1, f:t => t.cp3 ? money.format(t.cp3) : "—"},
     {k:"ctr", h:"CTR", num:1, f:t => pct(t.ctr, 2)},
     {k:"roas", h:"ROAS", num:1, f:t => t.roas.toFixed(2)},
     {k:"spend", h:"Spend", num:1, f:t => money0.format(t.spend)},
@@ -485,23 +521,24 @@ function renderHooks(C, list) {
   const copy = groupBy(C.perAd.filter(t => t.ad.hook), t => t.ad.hook.toLowerCase(), t => t.ad.hook);
   copy.forEach(g => { judge(g, R); g.formats = [...new Set(g.ads.map(a => a.format))].join(", "); });
   const ccols = [
-    {k:"label", h:"Opening line of the primary text", v:g => g.label.toLowerCase(), f:g => `<div class="hook">“${esc(g.label)}”</div><div class="small">${g.ads.length} ad${g.ads.length>1?"s":""} · ${esc(g.formats)}</div>`},
+    {k:"label", h:G ? "First headline" : "Opening line of the primary text", v:g => g.label.toLowerCase(), f:g => `<div class="hook">“${esc(g.label)}”</div><div class="small">${g.ads.length} ad${g.ads.length>1?"s":""} · ${esc(g.formats)}</div>`},
     {k:"spend", h:"Spend", num:1, f:g => money0.format(g.spend)},
     {k:"roas", h:"ROAS", num:1, f:g => g.roas.toFixed(2)},
     {k:"ratio", h:"vs avg", num:1, f:g => vsAvg(g, R.avg)},
-    {k:"purch", h:"Purch.", num:1, f:g => cnt(g.purch)},
+    {k:"purch", h:L.purch, num:1, f:g => cnt(g.purch)},
     {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
-    {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
+    {k:"hook", h:L.hook, num:1, f:g => pct(g.hook)},
     {k:"verdict", h:"Verdict", v:g => VERDICTS.indexOf(g.verdict), f:g => pill(g.verdict)},
   ];
   $("#tab-hooks").innerHTML = `
-    <div class="card"><h2>Video hooks: does the first 3 seconds stop the scroll, and does it sell?</h2>
-      <p class="sub">Videos with at least 1,000 impressions: <b>${num(tot.v3)}</b> 3-second views at <b>${tot.v3 ? money.format(vids.reduce((s, t) => s + t.spend, 0) / tot.v3) : "—"}</b> each. Average hook rate <b>${pct(avgHook)}</b> (vertical line), average hold rate <b>${pct(avgHold)}</b>, average ROAS <b>${R.avg.toFixed(2)}</b>. "Converts" means ROAS above the Cut line (${(R.avg*R.keepX).toFixed(2)}).</p>
-      ${scatter(pts, {xlog:false, label:"Hook rate vs ROAS", xlabel:"Hook rate (3-second plays ÷ impressions)", xfmt:v => pct(v, 0), yfmt:v => v.toFixed(1),
+    <div class="card"><h2>${G ? "YouTube and Demand Gen videos: do people watch, and does it sell?" : "Video hooks: does the first 3 seconds stop the scroll, and does it sell?"}</h2>
+      <p class="sub">Videos with at least 1,000 impressions: <b>${num(tot.v3)}</b> ${G ? "video views" : "3-second views"} at <b>${tot.v3 ? money.format(vids.reduce((s, t) => s + t.spend, 0) / tot.v3) : "—"}</b> each. Average ${L.hook.toLowerCase()} <b>${pct(avgHook)}</b> (vertical line), average ${L.hold.toLowerCase()} <b>${pct(avgHold)}</b>, average ROAS <b>${R.avg.toFixed(2)}</b>. "Converts" means ROAS above the Cut line (${(R.avg*R.keepX).toFixed(2)}).${G ? " Performance Max doesn't report video views, so its asset groups aren't here." : ""}</p>
+      ${scatter(pts, {xlog:false, label:`${L.hook} vs ROAS`, xlabel:`${L.hook} (${L.hookT.toLowerCase()})`, xfmt:v => pct(v, 0), yfmt:v => v.toFixed(1),
         lines:[{y:R.avg*R.keepX, c:"var(--cut)", t:`Cut < ${(R.avg*R.keepX).toFixed(2)}`}, {y:R.avg, c:"var(--avg)", t:`Average ROAS ${R.avg.toFixed(2)}`, dash:"", w:1.5}], vline:avgHook})}
       ${table("t-vid", vcols, vids, "hooks")}</div>
-    <div class="card"><h2>Copy hooks: which opening lines make money</h2>
-      <p class="sub">Ads grouped by the first line of their primary text (what shows before "See more"), judged with the same rules.</p>
+    <div class="card"><h2>${G ? "Headlines: which first headline makes money" : "Copy hooks: which opening lines make money"}</h2>
+      <p class="sub">${G ? "Ads and asset groups grouped by the headline that shows first (the one pinned to position 1, else the first written), judged with the same rules. Google mixes headlines in its own order, so this is a lead, not proof."
+        : `Ads grouped by the first line of their primary text (what shows before "See more"), judged with the same rules.`}</p>
       ${table("t-copy", ccols, copy, "copy")}</div>`;
 }
 
@@ -520,9 +557,9 @@ function renderFormats(C, list) {
          <div style="position:absolute;top:-3px;left:${R.avg/maxR*100}%;width:2px;height:14px;background:var(--avg)" title="Average ROAS"></div></div></div>`},
       {k:"cpa", h:"CPA", num:1, f:g => cost(g.cpa)},
       {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
-      {k:"cvr", h:"Conv. rate", num:1, title:"Purchases ÷ link clicks", f:g => pct(g.cvr, 2)},
-      {k:"v3", h:"3-sec views", num:1, f:g => num(g.v3)},
-      {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
+      {k:"cvr", h:"Conv. rate", num:1, title:G ? "Conversions ÷ clicks" : "Purchases ÷ link clicks", f:g => pct(g.cvr, 2)},
+      {k:"v3", h:L.v3, num:1, f:g => num(g.v3)},
+      {k:"hook", h:L.hook, num:1, f:g => pct(g.hook)},
       {k:"mix", h:"Creatives by verdict", v:g => g.verdicts[0][1], f:g => g.verdicts.filter(x => x[1]).map(([v, n]) => `<span class="pill v-${v}" style="margin:1px">${n} ${VLABEL[v].toLowerCase()}</span>`).join(" ")},
     ];
     if (!S.sort[id]) S.sort[id] = ["spend", -1];
@@ -553,22 +590,22 @@ function renderFormats(C, list) {
     {k:"spend", h:"Spend", num:1, f:g => money0.format(g.spend)},
     {k:"roas", h:"ROAS", num:1, f:g => g.roas.toFixed(2)},
     {k:"ratio", h:"vs avg", num:1, f:g => vsAvg(g, R.avg)},
-    {k:"purch", h:"Purch.", num:1, f:g => cnt(g.purch)},
+    {k:"purch", h:L.purch, num:1, f:g => cnt(g.purch)},
     {k:"ctr", h:"CTR", num:1, f:g => pct(g.ctr, 2)},
-    {k:"hook", h:"Hook rate", num:1, f:g => pct(g.hook)},
+    {k:"hook", h:L.hook, num:1, f:g => pct(g.hook)},
     {k:"verdict", h:"Verdict", v:g => VERDICTS.indexOf(g.verdict), f:g => pill(g.verdict)},
   ];
   const delims = [["_","underscore _"],["|","pipe |"],[" - ","spaced dash  - "],["-","dash -"]];
   $("#tab-formats").innerHTML = `
     <div class="card"><h2>Ad formats</h2><p class="sub">Spend and return by format. The purple tick is the average ROAS (${R.avg.toFixed(2)}).</p>
       ${breakdown("formats", "Format", a => a.format || "Other")}</div>
-    <div class="card"><h2>Partnership ads vs brand ads</h2>
+    ${G ? "" : `<div class="card"><h2>Partnership ads vs brand ads</h2>
       <p class="sub">Partnership ads run from the brand together with a creator's Facebook or Instagram identity (Meta's branded-content setting on the creative).
         ${ugcNotPartner.length ? `<b style="color:var(--early)">${ugcNotPartner.length} running ad${ugcNotPartner.length>1?"s":""} named UGC ${ugcNotPartner.length>1?"are":"is"} not set up as a partnership ad.</b>` : ""}
         ${unknownPartner ? `Meta didn't return the partnership setting for ${unknownPartner} ad${unknownPartner>1?"s":""} (shown as "Not known").` : ""}</p>
       ${breakdown("partner", "Ad type", partLabel)}</div>
     <div class="card"><h2>Call-to-action buttons</h2><p class="sub">Which button the ad shows. Flexible ads with several buttons are counted under the first one.</p>
-      ${breakdown("cta", "Button", a => a.cta || "Not known")}</div>
+      ${breakdown("cta", "Button", a => a.cta || "Not known")}</div>`}
     <div class="card"><h2>Angles, hooks and creators from ad names</h2>
       <p class="sub">Compare ads by a tag in their name (<code>C:UGC</code>, <code>X:Before-After</code>…), or by the part in a fixed position for names without tags.</p>
       <div class="chips"><label class="small">Compare by <select id="segBy">
@@ -589,14 +626,14 @@ const TAGS = {F:"format", SKU:"product", T:"ad type", C:"concept", X:"hook / mes
 // ── CSV of the creatives view ─────────────────────────────────────────────
 function csv() {
   const C = compute(), list = creatives(C);
-  const head = ["Ad account","Ad name","Ad ID","Status","Format","Campaign","Ad set","Opening line","Verdict","Why","Spend","Purchase value","ROAS","ROAS vs avg","Purchases","CPA","CTR","Hook rate","Hold rate","3-sec views","Cost per 3-sec view","Partnership ad","CTA button"];
+  const head = ["Ad account","Ad name","Ad ID","Status","Format","Campaign",G ? "Ad group" : "Ad set",L.opening,"Verdict","Why","Spend",L.value,"ROAS","ROAS vs avg",L.Purchases,"CPA","CTR",L.hook,L.hold,L.v3,L.cp3,"Partnership ad","CTA button"];
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = [head.map(q).join(",")].concat(list.sort((a,b) => b.spend - a.spend).map(t => [(D.accounts.find(x => x.id === t.ad.account) || {}).name || "", t.ad.name, t.ads.map(a => a.id).join(" "), t.ad.status, t.ad.format, t.ad.campaign,
     t.ad.adset, t.ad.hook, VLABEL[t.verdict], t.why, t.spend.toFixed(2), t.rev.toFixed(2), t.roas.toFixed(2), (t.ratio||0).toFixed(2), Math.round(t.purch),
     t.cpa ? t.cpa.toFixed(2) : "", (t.ctr*100).toFixed(2)+"%", t.hook != null ? (t.hook*100).toFixed(1)+"%" : "", t.hold != null ? (t.hold*100).toFixed(1)+"%" : "", Math.round(t.v3), t.cp3 ? t.cp3.toFixed(3) : "", partLabel(t.ad), t.ad.cta || ""].map(q).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], {type:"text/csv"}));
-  a.download = `${D.slug || "meta"}-creatives_${C.since}_${C.until}.csv`; a.click();
+  a.download = `${D.slug || "client"}-${PLATFORM}-creatives_${C.since}_${C.until}.csv`; a.click();
 }
 
 // ── events ────────────────────────────────────────────────────────────────
@@ -631,7 +668,10 @@ document.addEventListener("mousemove", e => { const t = e.target.closest("[data-
   tip.style.display = "block"; tip.style.whiteSpace = "pre-line"; tip.textContent = t.dataset.tip;
   tip.style.left = Math.min(e.clientX + 12, innerWidth - 330) + "px"; tip.style.top = (e.clientY + 12) + "px"; });
 $("#csv").addEventListener("click", csv);
-$("#clientSel").addEventListener("change", e => { location.href = "/" + e.target.value; });
+$("#clientSel").addEventListener("change", e => { const c = (D.clients || []).find(x => x.slug === e.target.value);
+  location.href = "/" + e.target.value + (G && c && (c.platforms || []).includes("google") ? "/google" : ""); });
+$("#refresh").textContent = `Refresh from ${PNAME}`;
+$("#purchWord").textContent = L.purchases;
 $("#theme").addEventListener("click", () => {
   const t = document.documentElement.dataset.theme === "light" ? "dark" : "light";
   document.documentElement.dataset.theme = t; try { localStorage.setItem("theme", t); } catch (e) {}
@@ -639,8 +679,9 @@ $("#theme").addEventListener("click", () => {
 });
 $("#refresh").addEventListener("click", async () => {
   const b = $("#refresh"); b.disabled = true; b.textContent = "Refreshing…";
-  await fetch("/api/refresh?client=" + encodeURIComponent(CLIENT), {method:"POST"});
-  setTimeout(async () => { await load(); b.disabled = false; b.textContent = "Refresh from Meta"; }, 20000);
+  const r = await (await fetch("/api/refresh?" + Q, {method:"POST"})).json().catch(() => ({}));
+  if (r.error) { b.disabled = false; b.textContent = `Refresh from ${PNAME}`; alert(r.error); return; }
+  setTimeout(async () => { await load(); b.disabled = false; b.textContent = `Refresh from ${PNAME}`; }, 20000);
 });
 load();
 </script>
