@@ -246,7 +246,7 @@ async function load() {
   fillCampaigns();
   const kinds = [...new Set(D.ads.filter(campaignActive).map(kindOf))].sort((a, b) => KIND_ORDER(a) - KIND_ORDER(b) || a.localeCompare(b));
   $("#kind").innerHTML = `<option value="">All formats</option>` + kinds.map(k => `<option value="${esc(k)}">${esc(KIND_LABEL[k] || k)}</option>`).join("");
-  $("#until").value = D.until; $("#since").value = shift(D.until, -29);
+  $("#until").value = lastDay(); $("#since").value = shift(lastDay(), -29);
   $("#since").min = $("#until").min = D.since; $("#since").max = $("#until").max = D.until;
   // pick the most common name delimiter for the angle breakdown
   const counts = {"_":0, "|":0, "-":0, " - ":0};
@@ -296,10 +296,19 @@ function adFilterLabel() {
 const daysBetween =(a,b) => Math.round((new Date(b) - new Date(a)) / 864e5);
 const shift = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0,10); };
 
+// The last full day in the account's own time zone: "Last 30 days" ends yesterday, as in Ads Manager and Google Ads.
+function lastDay() {
+  const tz = ((D.accounts || [])[0] || D.account || {}).timezone;
+  let today;
+  try { today = new Date().toLocaleDateString("en-CA", tz ? {timeZone: tz} : {}); } catch (e) { today = new Date().toLocaleDateString("en-CA"); }
+  const y = shift(today, -1);
+  return y < D.until ? (y < D.since ? D.since : y) : D.until;
+}
+
 function range() {
   const v = $("#range").value;
-  if (v === "custom") return [$("#since").value || D.since, $("#until").value || D.until];
-  return [shift(D.until, -(+v - 1)), D.until];
+  if (v === "custom") return [$("#since").value || D.since, $("#until").value || lastDay()];
+  return [shift(lastDay(), -(+v - 1)), lastDay()];
 }
 
 function blank() { return {spend:0, impr:0, clicks:0, purch:0, rev:0, atc:0, v3:0, thru:0, ads:[]}; }
