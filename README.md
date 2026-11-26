@@ -18,7 +18,7 @@ chosen dates, ads paused since included, so they match Ads Manager's campaign ro
 | Scale | ROAS ≥ 1.2 × average **and** at least 2 purchases |
 | Keep running | ROAS ≥ 0.8 × average |
 | Cut | ROAS below 0.8 × average (or spent without a purchase) |
-| Too early | spend below one average CPA, not judged yet |
+| Too early | spend below 1.5 × the account's average CPA, not judged yet |
 
 "Judge by" can merge ads that share a name (the same creative duplicated across ad sets) into one row.
 

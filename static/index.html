@@ -304,9 +304,10 @@ function compute() {
   }
   finish(total); finish(all); total.paused = paused; total.all = all; total.filtered = !!keep;
   const avg = all.roas;
-  const autoMin = all.purch ? Math.round(all.spend / all.purch) : 50;
+  const acctCpa = all.purch ? all.spend / all.purch : 0;
+  const autoMin = acctCpa ? Math.round(acctCpa * 1.5) : 75;   // 1.5 × the account's CPA before an ad is judged
   if (!S.minSpendTouched) $("#minSpend").value = autoMin;
-  $("#minSpendNote").textContent = S.minSpendTouched ? `(account CPA is ${cost(autoMin)})` : "(one average CPA)";
+  $("#minSpendNote").textContent = S.minSpendTouched ? `(1.5 × account CPA is ${cost(autoMin)})` : `(1.5 × the ${cost(acctCpa)} account CPA)`;
   const rules = { avg, scaleX:+$("#scaleX").value || 1.2, keepX:+$("#keepX").value || 0.8, minPurch:+$("#minPurch").value || 0, minSpend:+$("#minSpend").value || 0 };
   return { since, until, perAd:[...perAd.values()].map(finish), total, rules };
 }
