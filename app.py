@@ -39,7 +39,8 @@ import meta
 # "google": the client's Google Ads customer IDs, or a name to find its account by under the manager account.
 # The first one is also what the bare link (/) shows. To add a client, add a line here.
 CLIENTS = {
-    "soteri": {"name": "Soteri Skin", "accounts": ["261215873024315"], "google": {"ids": ["9557969390"], "find": "Soteri"}},
+    # too_early_x: how many average CPAs an ad must spend before it is judged (1 unless the client asked otherwise; Soteri asked for 1.5)
+    "soteri": {"name": "Soteri Skin", "accounts": ["261215873024315"], "google": {"ids": ["9557969390"], "find": "Soteri"}, "too_early_x": 1.5},
     "caba": {"name": "CABA Design", "accounts": ["6928133667255774", "1135846647331525", "990238779748852"]},   # CABA Design, Design 2, Design 3
 }
 DEFAULT = next(iter(CLIENTS))
@@ -100,6 +101,7 @@ def compact(st, data):
     out.setdefault("accounts", [data["account"]] if data.get("account") else [])
     out.update({"ads": [dict(ads[k], id=k) for k in ids], "rows": rows, "builtAt": data.get("builtAt"), "error": st.error, "refreshHours": REFRESH_HOURS,
                 "client": st.client["name"], "slug": st.slug, "platform": st.platform, "platforms": platforms_of(st.slug),
+                "tooEarlyX": st.client.get("too_early_x", 1),
                 "clients": [{"slug": k, "name": v["name"], "platforms": platforms_of(k)} for k, v in CLIENTS.items()]})
     return out
 

@@ -21,7 +21,7 @@ dates, paused campaigns and ads included, so they match the account total in Ads
 | Scale | ROAS ≥ 1.2 × average **and** at least 2 purchases |
 | Keep running | ROAS ≥ 0.8 × average |
 | Cut | ROAS below 0.8 × average (or spent without a purchase) |
-| Too early | spend below 1.5 × the account's average CPA, not judged yet |
+| Too early | spend below one average CPA of the account (1.5 × for Soteri Skin, set by too_early_x in CLIENTS), not judged yet |
 
 "Judge by" can merge ads that share a name (the same creative duplicated across ad sets) into one row.
 

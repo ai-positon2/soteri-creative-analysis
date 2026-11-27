@@ -346,9 +346,11 @@ function compute() {
   finish(total); finish(all); total.paused = paused; total.all = all; total.filtered = !!keep;
   const avg = all.roas;
   const acctCpa = all.purch ? all.spend / all.purch : 0;
-  const autoMin = acctCpa ? Math.round(acctCpa * 1.5) : 75;   // 1.5 × the account's CPA before an ad is judged
+  const x = +D.tooEarlyX || 1;                                   // CPAs an ad spends before it is judged: 1, or what the client asked for (Soteri 1.5)
+  const autoMin = acctCpa ? Math.round(acctCpa * x) : Math.round(50 * x);
   if (!S.minSpendTouched) $("#minSpend").value = autoMin;
-  $("#minSpendNote").textContent = S.minSpendTouched ? `(1.5 × account CPA is ${cost(autoMin)})` : `(1.5 × the ${cost(acctCpa)} account CPA)`;
+  const xs = x === 1 ? "" : `${x} × `;
+  $("#minSpendNote").textContent = S.minSpendTouched ? `(${xs}account CPA is ${cost(autoMin)})` : x === 1 ? "(one average CPA)" : `(${xs}the ${cost(acctCpa)} account CPA)`;
   const rules = { avg, scaleX:+$("#scaleX").value || 1.2, keepX:+$("#keepX").value || 0.8, minPurch:+$("#minPurch").value || 0, minSpend:+$("#minSpend").value || 0 };
   return { since, until, perAd:[...perAd.values()].map(finish), total, rules };
 }
